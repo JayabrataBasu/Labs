@@ -1,0 +1,226 @@
+//! Birth and death.
+//!
+//! - `reproduction.division`: an entity holding at least `threshold` of a resource divides,
+//!   unless its site already holds `site_capacity` entities. Selection acts through this rule:
+//!   who reproduces depends on what their genes achieved.
+//! - `reproduction.random`: every entity divides with a fixed probability, whatever it holds.
+//!   With `death.random` this is null world N3 (demography without selection).
+//! - `death.starvation`: an entity holding none of a resource is removed.
+//! - `death.random`: every entity is removed with a fixed probability.
+//!
+//! Offspring receive half of each parental stock and a mutated copy of the genome (`mutation.rs`).
+use crate::mutation::MutationParams;
+use crate::{invalid, params, resource_index};
+use lab_core::config::RuleCfg;
+use lab_core::{Delta, LabError, Rule, SiteIndex, State};
+use lab_rng::{below, RuleRng};
+use serde::Deserialize;
+use std::ops::Range;
+
+const PPM: u32 = 1_000_000;
+/// Draw index used for the "does this entity reproduce / die" decision (gene positions use 0..4096 and 0x8000..).
+const DECISION: u16 = 0x7fff;
+
+macro_rules! rule_header {
+    ($id:expr) => {
+        fn id(&self) -> &'static str {
+            $id
+        }
+        fn version(&self) -> u32 {
+            1
+        }
+        fn stream(&self) -> u16 {
+            self.stream
+        }
+    };
+}
+
+fn check_ppm(cfg: &RuleCfg, ppm: u32) -> Result<(), LabError> {
+    if ppm > PPM {
+        return Err(invalid(cfg, "probability_ppm must be between 0 and 1000000"));
+    }
+    Ok(())
+}
+
+// ---- reproduction.division ----------------------------------------------------------------
+
+pub const DIVISION_ID: &str = "reproduction.division";
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DivisionParams {
+    resource: String,
+    threshold: u64,
+    site_capacity: u32,
+    mutation: MutationParams,
+}
+
+pub struct Division {
+    stream: u16,
+    resource: usize,
+    threshold: u64,
+    site_capacity: u32,
+    mutation: MutationParams,
+}
+
+impl Division {
+    pub fn new(cfg: &RuleCfg, resources: &[String]) -> Result<Self, LabError> {
+        let p: DivisionParams = params(cfg)?;
+        p.mutation.validate().map_err(|e| invalid(cfg, &e.to_string()))?;
+        if p.threshold == 0 {
+            return Err(invalid(cfg, "threshold must be at least 1"));
+        }
+        Ok(Division {
+            stream: cfg.stream,
+            resource: resource_index(cfg, &p.resource, resources)? as usize,
+            threshold: p.threshold,
+            site_capacity: p.site_capacity,
+            mutation: p.mutation,
+        })
+    }
+}
+
+impl Rule for Division {
+    rule_header!(DIVISION_ID);
+    fn propose(&self, state: &State, index: &SiteIndex, rng: RuleRng, sites: Range<u32>, out: &mut Vec<Delta>) {
+        let tick = state.tick as u32;
+        for site in sites {
+            let residents = index.at(site);
+            let mut room = (self.site_capacity as usize).saturating_sub(residents.len());
+            for &entity in residents {
+                if room == 0 {
+                    break;
+                }
+                let e = entity as usize;
+                if state.ent_stock[e * state.k + self.resource] >= self.threshold {
+                    let genome = self.mutation.offspring(&state.genomes[e], rng, tick, state.entities[e].id, state.k as u8);
+                    out.push(Delta::Spawn { parent: entity, genome });
+                    room -= 1;
+                }
+            }
+        }
+    }
+}
+
+// ---- reproduction.random ------------------------------------------------------------------
+
+pub const RANDOM_BIRTH_ID: &str = "reproduction.random";
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RandomBirthParams {
+    probability_ppm: u32,
+    site_capacity: u32,
+    mutation: MutationParams,
+}
+
+pub struct RandomBirth {
+    stream: u16,
+    probability_ppm: u32,
+    site_capacity: u32,
+    mutation: MutationParams,
+}
+
+impl RandomBirth {
+    pub fn new(cfg: &RuleCfg) -> Result<Self, LabError> {
+        let p: RandomBirthParams = params(cfg)?;
+        p.mutation.validate().map_err(|e| invalid(cfg, &e.to_string()))?;
+        check_ppm(cfg, p.probability_ppm)?;
+        Ok(RandomBirth { stream: cfg.stream, probability_ppm: p.probability_ppm, site_capacity: p.site_capacity, mutation: p.mutation })
+    }
+}
+
+impl Rule for RandomBirth {
+    rule_header!(RANDOM_BIRTH_ID);
+    fn propose(&self, state: &State, index: &SiteIndex, rng: RuleRng, sites: Range<u32>, out: &mut Vec<Delta>) {
+        let tick = state.tick as u32;
+        for site in sites {
+            let residents = index.at(site);
+            let mut room = (self.site_capacity as usize).saturating_sub(residents.len());
+            for &entity in residents {
+                if room == 0 {
+                    break;
+                }
+                let e = entity as usize;
+                let id = state.entities[e].id;
+                if below(rng.draw(tick, id, DECISION)[0], PPM) < self.probability_ppm {
+                    let genome = self.mutation.offspring(&state.genomes[e], rng, tick, id, state.k as u8);
+                    out.push(Delta::Spawn { parent: entity, genome });
+                    room -= 1;
+                }
+            }
+        }
+    }
+}
+
+// ---- death.starvation ---------------------------------------------------------------------
+
+pub const STARVATION_ID: &str = "death.starvation";
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StarvationParams {
+    resource: String,
+}
+
+pub struct Starvation {
+    stream: u16,
+    resource: usize,
+}
+
+impl Starvation {
+    pub fn new(cfg: &RuleCfg, resources: &[String]) -> Result<Self, LabError> {
+        let p: StarvationParams = params(cfg)?;
+        Ok(Starvation { stream: cfg.stream, resource: resource_index(cfg, &p.resource, resources)? as usize })
+    }
+}
+
+impl Rule for Starvation {
+    rule_header!(STARVATION_ID);
+    fn propose(&self, state: &State, index: &SiteIndex, _: RuleRng, sites: Range<u32>, out: &mut Vec<Delta>) {
+        for site in sites {
+            for &entity in index.at(site) {
+                if state.ent_stock[entity as usize * state.k + self.resource] == 0 {
+                    out.push(Delta::Remove { entity });
+                }
+            }
+        }
+    }
+}
+
+// ---- death.random -------------------------------------------------------------------------
+
+pub const RANDOM_DEATH_ID: &str = "death.random";
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RandomDeathParams {
+    probability_ppm: u32,
+}
+
+pub struct RandomDeath {
+    stream: u16,
+    probability_ppm: u32,
+}
+
+impl RandomDeath {
+    pub fn new(cfg: &RuleCfg) -> Result<Self, LabError> {
+        let p: RandomDeathParams = params(cfg)?;
+        check_ppm(cfg, p.probability_ppm)?;
+        Ok(RandomDeath { stream: cfg.stream, probability_ppm: p.probability_ppm })
+    }
+}
+
+impl Rule for RandomDeath {
+    rule_header!(RANDOM_DEATH_ID);
+    fn propose(&self, state: &State, index: &SiteIndex, rng: RuleRng, sites: Range<u32>, out: &mut Vec<Delta>) {
+        let tick = state.tick as u32;
+        for site in sites {
+            for &entity in index.at(site) {
+                if below(rng.draw(tick, state.entities[entity as usize].id, DECISION)[0], PPM) < self.probability_ppm {
+                    out.push(Delta::Remove { entity });
+                }
+            }
+        }
+    }
+}

@@ -11,8 +11,10 @@ resources = ["A", "B"]
 
 [init]
 site_stock = [50, 0]
+patches = []
 entities = 2000
 entity_stock = [5, 0]
+genome = []
 
 [[rules]]
 id = "influx.constant"

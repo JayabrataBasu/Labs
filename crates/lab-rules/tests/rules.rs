@@ -4,7 +4,7 @@ use lab_core::{Engine, EntityMeta, LabError, State, Topology};
 fn header(w: u32, h: u32, wrap: bool, site: u64, entities: u64, ent: u64) -> String {
     format!(
         "schema_version = 1\nseed = 11\n[world]\nwidth = {w}\nheight = {h}\nwrap = {wrap}\nresources = [\"A\"]\n\
-         [init]\nsite_stock = [{site}]\nentities = {entities}\nentity_stock = [{ent}]\n"
+         [init]\nsite_stock = [{site}]\npatches = []\nentities = {entities}\nentity_stock = [{ent}]\ngenome = []\n"
     )
 }
 fn rule(id: &str, stream: u16, params: &str) -> String {

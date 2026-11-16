@@ -15,39 +15,56 @@ struct World {
     midpoint: u32,
 }
 
-fn rule_text(kind: usize, stream: usize, resource: usize, a: u64, b: u64) -> String {
+fn rule_text(kind: usize, stream: usize, resource: usize, a: u64, b: u64, k: usize) -> String {
     let r = format!("R{resource}");
     let (id, params) = match kind {
         0 => ("influx.constant", format!("resource = \"{r}\", amount = {}, every = {}", a % 6, 1 + b % 3)),
         1 => ("diffusion.integer", format!("resource = \"{r}\", divisor = {}", 5 + a % 8)),
         2 => ("uptake.fixed", format!("resource = \"{r}\", amount = {}", a % 6)),
         3 => ("maintenance.fixed", format!("resource = \"{r}\", amount = {}", a % 4)),
-        _ => ("move.random", format!("probability_ppm = {}", a % 1_000_001)),
+        4 => ("move.random", format!("probability_ppm = {}", a % 1_000_001)),
+        5 => ("metabolism.genes", format!("energy = \"{r}\", base_cost = {}, gene_cost = {}, yield_num = {}, yield_den = 4, reactions = [{}], secretion = {}", a % 3, b % 2, a % 5, if k > 1 { "[\"R0\", \"R1\"]" } else { "" }, b.is_multiple_of(2))),
+        6 => (
+            "reproduction.division",
+            format!(
+                "resource = \"{r}\", threshold = {}, site_capacity = {}, mutation = {{ point_ppm = {}, point_magnitude = 3, retarget_ppm = {}, duplicate_ppm = {}, delete_ppm = {}, max_genes = 12 }}",
+                1 + a % 12, 1 + b % 6, a % 400_000, b % 300_000, a % 200_000, b % 200_000
+            ),
+        ),
+        7 => ("death.starvation", format!("resource = \"{r}\"")),
+        8 => ("mix.relocate", format!("probability_ppm = {}", a % 1_000_001)),
+        _ => ("decay.fraction", format!("resource = \"{r}\", divisor = {}", 1 + a % 9)),
     };
     format!("[[rules]]\nid = \"{id}\"\nversion = 1\nstream = {stream}\nparams = {{ {params} }}\n")
 }
 
 fn world() -> impl Strategy<Value = World> {
-    let kinds = proptest::sample::subsequence(vec![0usize, 1, 2, 3, 4], 1..=5).prop_shuffle();
+    let kinds = proptest::sample::subsequence(vec![0usize, 1, 2, 3, 4, 5, 6, 7, 8, 9], 1..=10).prop_shuffle();
     (
         (3u32..=40, 3u32..=40, any::<bool>(), 1usize..=3, 0u64..=300),
-        (kinds, proptest::collection::vec((0usize..3, any::<u64>(), any::<u64>()), 5)),
+        (kinds, proptest::collection::vec((0usize..3, any::<u64>(), any::<u64>()), 10)),
         (0u64..=i64::MAX as u64, 1u32..=40, any::<usize>(), any::<u32>()),
         (proptest::collection::vec(0u64..=20, 3), proptest::collection::vec(0u64..=5, 3)),
     )
         .prop_map(|((w, h, wrap, k, entities), (kinds, params), (seed, ticks, insert, mid), (site, ent))| {
             let resources: Vec<String> = (0..k).map(|i| format!("\"R{i}\"")).collect();
             let list = |v: &[u64]| v[..k].iter().map(u64::to_string).collect::<Vec<_>>().join(", ");
+            // Founders can take up, convert (when there are two resources) and secrete.
+            let mut genome = String::from("{ kind = \"uptake\", resource = \"R0\", level = 3, sense = \"always\", threshold = 0 }");
+            if k > 1 {
+                genome += ", { kind = \"convert\", from = \"R0\", to = \"R1\", level = 2, sense = \"always\", threshold = 0 }";
+                genome += ", { kind = \"secrete\", resource = \"R1\", level = 1, sense = \"R0\", threshold = 2 }";
+            }
             let mut text = format!(
                 "schema_version = 1\nseed = {seed}\n[world]\nwidth = {w}\nheight = {h}\nwrap = {wrap}\nresources = [{}]\n\
-                 [init]\nsite_stock = [{}]\nentities = {entities}\nentity_stock = [{}]\n",
+                 [init]\nsite_stock = [{}]\npatches = []\nentities = {entities}\nentity_stock = [{}]\ngenome = [{genome}]\n",
                 resources.join(", "),
                 list(&site),
                 list(&ent)
             );
             for (i, &kind) in kinds.iter().enumerate() {
                 let (resource, a, b) = params[i];
-                text += &rule_text(kind, i + 1, resource % k, a, b);
+                text += &rule_text(kind, i + 1, resource % k, a, b, k);
             }
             World { text, ticks, insert_at: insert % (kinds.len() + 1), midpoint: mid % (ticks + 1) }
         })
@@ -110,7 +127,10 @@ proptest! {
             e.step(&mut s).unwrap();
             prop_assert!(check_conservation(&s).is_ok());
             for r in 0..s.k {
-                prop_assert_eq!(s.total(r).unwrap(), s.initial_total[r] + s.ledger.influx[r] - s.ledger.dissipated[r]);
+                prop_assert_eq!(
+                    s.total(r).unwrap() + s.ledger.dissipated[r] + s.ledger.converted_out[r],
+                    s.initial_total[r] + s.ledger.influx[r] + s.ledger.converted_in[r]
+                );
             }
         }
     }
@@ -155,6 +175,8 @@ proptest! {
             e.step(&mut s).unwrap();
             prop_assert!(s.entities.windows(2).all(|p| p[0].id < p[1].id));
             prop_assert!(s.entities.iter().all(|x| x.parent.is_none() && x.site < s.topo.n_sites()));
+            prop_assert_eq!(s.genomes.len(), s.entities.len());
+            prop_assert_eq!(s.entities.len() as u64, cfg.init.entities + s.births - s.deaths);
         }
     }
 }

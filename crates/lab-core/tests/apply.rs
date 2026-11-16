@@ -20,7 +20,7 @@ fn inter_site_deposits_arrive_after_all_withdrawals() {
 #[test]
 fn same_site_transfers_are_immediate_and_ordered() {
     let topo = Topology::lattice(1, 1, false).unwrap();
-    let e = |id| EntityMeta { id, site: 0, parent: None };
+    let e = |id| EntityMeta { id, site: 0, parent: None, mother: None, born: 0 };
     let mut s = State::new(topo, 1, vec![4], vec![e(0), e(1)], vec![0, 0]).unwrap();
     // Entity 0 receives 4 from the site and can hand 3 on to entity 1 within the same rule.
     apply(&mut s, &[t(Holder::Site(0), Holder::Entity(0), 4), t(Holder::Entity(0), Holder::Entity(1), 3)]).unwrap();
@@ -30,7 +30,7 @@ fn same_site_transfers_are_immediate_and_ordered() {
 #[test]
 fn entity_to_entity_across_sites_is_deferred() {
     let topo = Topology::lattice(2, 1, false).unwrap();
-    let e = |id, site| EntityMeta { id, site, parent: None };
+    let e = |id, site| EntityMeta { id, site, parent: None, mother: None, born: 0 };
     let mut s = State::new(topo, 1, vec![0, 0], vec![e(0, 0), e(1, 1)], vec![6, 0]).unwrap();
     apply(&mut s, &[t(Holder::Entity(0), Holder::Entity(1), 6), t(Holder::Entity(1), Holder::Sink, 6)]).unwrap();
     assert_eq!(s.ent_stock, vec![0, 6], "entity 1 had nothing to dissipate when its turn came");
@@ -105,7 +105,7 @@ fn world(seed: u64) -> State {
     let topo = Topology::lattice(70, 40, true).unwrap(); // 2,800 sites: three scheduler chunks
     let n = topo.n_sites();
     let init = RuleRng { seed, stream: 0 };
-    let metas = (0..3000u64).map(|i| EntityMeta { id: i, site: below(init.draw(0, i, 0)[0], n), parent: None }).collect();
+    let metas = (0..3000u64).map(|i| EntityMeta { id: i, site: below(init.draw(0, i, 0)[0], n), parent: None, mother: None, born: 0 }).collect();
     State::new(topo, 1, vec![3; n as usize], metas, vec![1; 3000]).unwrap()
 }
 
@@ -125,9 +125,10 @@ fn oracle_apply(state: &mut State, deltas: &[Delta]) {
         }
     }
     let (mut deposits, mut moves) = (Vec::new(), Vec::new());
-    for &delta in deltas {
-        match delta {
+    for delta in deltas {
+        match *delta {
             Delta::Move { entity, to } => moves.push((entity, to)),
+            Delta::Convert { .. } | Delta::Relocate { .. } | Delta::Remove { .. } | Delta::Spawn { .. } => unreachable!("not used by these rules"),
             Delta::Transfer { from, to, amount, .. } => {
                 let moved = if from == Holder::Source {
                     state.ledger.influx[0] += amount;

@@ -6,9 +6,9 @@ fn sample() -> State {
     site_stock[0] = 10;
     site_stock[17] = 7;
     let entities = vec![
-        EntityMeta { id: 0, site: 2, parent: None },
-        EntityMeta { id: 1, site: 0, parent: None },
-        EntityMeta { id: 5, site: 2, parent: None },
+        EntityMeta { id: 0, site: 2, parent: None, mother: None, born: 0 },
+        EntityMeta { id: 1, site: 0, parent: None, mother: None, born: 0 },
+        EntityMeta { id: 5, site: 2, parent: None, mother: None, born: 0 },
     ];
     State::new(topo, 2, site_stock, entities, vec![1, 2, 3, 4, 5, 6]).unwrap()
 }
@@ -44,7 +44,7 @@ fn new_computes_totals_and_next_id() {
 #[test]
 fn new_rejects_inconsistent_input() {
     let topo = || Topology::lattice(3, 3, true).unwrap();
-    let e = |id, site| EntityMeta { id, site, parent: None };
+    let e = |id, site| EntityMeta { id, site, parent: None, mother: None, born: 0 };
     assert!(State::new(topo(), 2, vec![0; 17], vec![], vec![]).is_err(), "site_stock length");
     assert!(State::new(topo(), 2, vec![0; 18], vec![e(0, 0)], vec![1]).is_err(), "ent_stock length");
     assert!(State::new(topo(), 2, vec![0; 18], vec![e(1, 0), e(0, 0)], vec![0; 4]).is_err(), "unsorted ids");
@@ -96,7 +96,7 @@ fn decode_rejects() {
     bad_magic[0] = b'X';
     assert!(matches!(decode(&bad_magic), Err(LabError::Codec(_))));
     let mut bad_version = bytes.clone();
-    bad_version[4] = 2;
+    bad_version[4] = 99;
     assert!(matches!(decode(&bad_version), Err(LabError::Codec(_))));
     assert!(matches!(decode(&bytes[..bytes.len() - 1]), Err(LabError::Codec(_))));
     let mut trailing = bytes.clone();

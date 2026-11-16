@@ -17,6 +17,7 @@ pub struct ViewOptions<'a> {
     pub ticks: u64,
     pub out: &'a Path,
     pub checkpoint_every: Option<u64>,
+    pub series_every: Option<u64>,
     pub port: u16,
     pub linger_seconds: u64,
     pub start_paused: bool,
@@ -74,7 +75,7 @@ pub fn view(session: &mut Session, options: &ViewOptions) -> Result<[u8; 32], La
     let server_thread = std::thread::spawn(move || serve(&server, &server_shared));
 
     let hook_shared = Arc::clone(&shared);
-    let result = execute(session, options.ticks, options.out, options.checkpoint_every, |state| {
+    let result = execute(session, options.ticks, options.out, options.checkpoint_every, options.series_every, |state| {
         publish(&hook_shared, state);
         if state.tick < end_tick {
             wait_for_permission(&hook_shared);

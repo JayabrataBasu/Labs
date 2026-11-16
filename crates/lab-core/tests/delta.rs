@@ -5,7 +5,7 @@ fn world() -> State {
     let topo = Topology::lattice(3, 3, false).unwrap();
     let mut site_stock = vec![0u64; 18];
     site_stock[4 * 2] = 10;
-    let entities = vec![EntityMeta { id: 0, site: 4, parent: None }, EntityMeta { id: 1, site: 4, parent: None }];
+    let entities = vec![EntityMeta { id: 0, site: 4, parent: None, mother: None, born: 0 }, EntityMeta { id: 1, site: 4, parent: None, mother: None, born: 0 }];
     State::new(topo, 2, site_stock, entities, vec![0, 0, 5, 0]).unwrap()
 }
 fn t(from: Holder, to: Holder, amount: u64) -> Delta {
@@ -86,6 +86,6 @@ fn invalid_holders_rejected() {
     ];
     for d in bad {
         let mut s = world();
-        assert!(matches!(apply(&mut s, &[d]), Err(LabError::Config(_))), "{d:?} should be rejected");
+        assert!(matches!(apply(&mut s, std::slice::from_ref(&d)), Err(LabError::Config(_))), "{d:?} should be rejected");
     }
 }

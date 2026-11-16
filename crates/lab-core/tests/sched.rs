@@ -50,7 +50,7 @@ fn world(entities: u32) -> State {
     let topo = Topology::lattice(64, 64, true).unwrap();
     let init = RuleRng { seed: 99, stream: 0 };
     let metas = (0..entities)
-        .map(|i| EntityMeta { id: u64::from(i), site: below(init.draw(0, u64::from(i), 0)[0], 4096), parent: None })
+        .map(|i| EntityMeta { id: u64::from(i), site: below(init.draw(0, u64::from(i), 0)[0], 4096), parent: None, mother: None, born: 0 })
         .collect();
     State::new(topo, 1, vec![1; 4096], metas, vec![0; entities as usize]).unwrap()
 }
@@ -111,7 +111,7 @@ fn ledger_matches_totals() {
     let s = run(ALL, 7, 3, 500, 50);
     assert_eq!(s.tick, 50);
     assert!(s.ledger.influx[0] > 0);
-    assert_eq!(s.total(0).unwrap(), s.initial_total[0] + s.ledger.influx[0] - s.ledger.dissipated[0]);
+    assert_eq!(s.total(0).unwrap(), s.initial_total[0] + s.ledger.influx[0] - s.ledger.dissipated[0] - s.ledger.converted_out[0]);
 }
 
 #[test]

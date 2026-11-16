@@ -1,0 +1,80 @@
+# Cross-feeding world for RQ1 (PROPOSAL §3.2). Substrate A flows in; founders carry the full
+# pathway A -> B -> E and leak some of the intermediate B, which neighbours can take up.
+# E is the energy that pays for genes and for reproduction. Dependence is not imposed:
+# a lineage may lose its A -> B gene and live on leaked B, if that pays.
+# This is a starting point for experiments, not a tuned or validated model.
+schema_version = 1
+seed = 1
+
+[world]
+width = 48
+height = 48
+wrap = true
+resources = ["E", "A", "B"]
+
+[init]
+site_stock = [0, 200, 0]
+patches = []
+entities = 600
+entity_stock = [80, 0, 0]
+genome = [
+  { kind = "uptake", resource = "A", level = 60, sense = "always", threshold = 0 },
+  { kind = "convert", from = "A", to = "B", level = 60, sense = "always", threshold = 0 },
+  { kind = "secrete", resource = "B", level = 5, sense = "always", threshold = 0 },
+  { kind = "uptake", resource = "B", level = 20, sense = "always", threshold = 0 },
+  { kind = "convert", from = "B", to = "E", level = 60, sense = "always", threshold = 0 },
+]
+
+[[rules]]
+id = "influx.constant"
+version = 1
+stream = 1
+params = { resource = "A", amount = 40, every = 1 }
+
+[[rules]]
+id = "diffusion.integer"
+version = 1
+stream = 2
+params = { resource = "A", divisor = 8 }
+
+[[rules]]
+id = "diffusion.integer"
+version = 1
+stream = 3
+params = { resource = "B", divisor = 8 }
+
+[[rules]]
+id = "decay.fraction"
+version = 1
+stream = 4
+params = { resource = "B", divisor = 20 }
+
+[[rules]]
+id = "decay.fraction"
+version = 1
+stream = 5
+params = { resource = "A", divisor = 50 }
+
+[[rules]]
+id = "metabolism.genes"
+version = 1
+stream = 6
+params = { energy = "E", base_cost = 2, gene_cost = 1, yield_num = 1, yield_den = 2, reactions = [["A", "B"], ["B", "E"]], secretion = true }
+
+[[rules]]
+id = "death.starvation"
+version = 1
+stream = 7
+params = { resource = "E" }
+
+[[rules]]
+id = "reproduction.division"
+version = 1
+stream = 8
+params = { resource = "E", threshold = 200, site_capacity = 4, mutation = { point_ppm = 20000, point_magnitude = 5, retarget_ppm = 2000, duplicate_ppm = 2000, delete_ppm = 5000, max_genes = 16 } }
+
+[[rules]]
+id = "move.random"
+version = 1
+stream = 9
+params = { probability_ppm = 100000 }

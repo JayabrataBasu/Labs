@@ -18,5 +18,5 @@ pub use delta::{check_conservation, Delta, Holder};
 pub use error::LabError;
 pub use rule::Rule;
 pub use sched::{Engine, CHUNK_SITES};
-pub use state::{EntityMeta, Ledger, SiteIndex, State};
+pub use state::{EntityMeta, Gene, GeneKind, Ledger, SiteIndex, State, SENSE_ALWAYS};
 pub use topology::Topology;

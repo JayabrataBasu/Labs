@@ -54,6 +54,7 @@ pub fn execute(
     ticks: u64,
     out: &Path,
     checkpoint_every: Option<u64>,
+    series_every: Option<u64>,
     mut after_tick: impl FnMut(&State),
 ) -> Result<[u8; 32], LabError> {
     let start_tick = session.state.tick;
@@ -63,7 +64,19 @@ pub fn execute(
     if checkpoint_every == Some(0) {
         return Err(LabError::Config("--checkpoint-every must be at least 1".into()));
     }
+    if series_every == Some(0) {
+        return Err(LabError::Config("--series-every must be at least 1".into()));
+    }
     std::fs::create_dir_all(out).map_err(|e| LabError::Io(format!("cannot create {}: {e}", out.display())))?;
+    let mut series = series_every.map(|_| series_header(&session.cfg.world.resources));
+    let record = |state: &State, series: &mut Option<String>| {
+        if let (Some(every), Some(text)) = (series_every, series.as_mut()) {
+            if state.tick == end_tick || state.tick.is_multiple_of(every) {
+                series_row(text, state);
+            }
+        }
+    };
+    record(&session.state, &mut series);
 
     let mut checkpoints = Vec::new();
     let mut entity_ticks: u64 = 0;
@@ -73,6 +86,7 @@ pub fn execute(
         entity_ticks = entity_ticks.saturating_add(session.state.entities.len() as u64);
         session.engine.step(&mut session.state)?;
         after_tick(&session.state);
+        record(&session.state, &mut series);
         let tick = session.state.tick;
         if tick == end_tick || checkpoint_every.is_some_and(|every| tick.is_multiple_of(every)) {
             let bytes = encode(&session.state, &session.config_hash);
@@ -90,6 +104,10 @@ pub fn execute(
         checkpoints.push(json!({ "tick": end_tick, "sha256": hex(&final_hash) }));
     }
 
+    if let Some(text) = series {
+        let path = out.join("series.csv");
+        std::fs::write(&path, text).map_err(|e| LabError::Io(format!("cannot write {}: {e}", path.display())))?;
+    }
     let rules: Vec<_> = session.engine.rules().iter().map(|r| json!({ "id": r.id(), "version": r.version(), "stream": r.stream() })).collect();
     let manifest = json!({
         "lab_version": env!("CARGO_PKG_VERSION"),
@@ -115,6 +133,72 @@ pub fn execute(
     let text = serde_json::to_string_pretty(&manifest).map_err(|e| LabError::Io(e.to_string()))?;
     std::fs::write(&path, text + "\n").map_err(|e| LabError::Io(format!("cannot write {}: {e}", path.display())))?;
     Ok(final_hash)
+}
+
+/// Column names of `series.csv`. Everything is an exact integer; ratios are left to analysis.
+fn series_header(resources: &[String]) -> String {
+    let mut header = String::from("tick,entities,births,deaths,distinct_genomes,genes,uptake_genes,convert_genes,secrete_genes");
+    for name in resources {
+        header += &format!(",site_{name},entity_{name},influx_{name},dissipated_{name},converted_in_{name},converted_out_{name}");
+    }
+    header + "\n"
+}
+
+fn series_row(text: &mut String, state: &State) {
+    let mut kinds = [0u64; 3];
+    for gene in state.genomes.iter().flatten() {
+        kinds[gene.kind as usize] += 1;
+    }
+    let mut genomes: Vec<&Vec<lab_core::Gene>> = state.genomes.iter().collect();
+    genomes.sort_unstable_by_key(|g| g.iter().map(|x| (x.kind as u8, x.a, x.b, x.sense, x.level, x.threshold)).collect::<Vec<_>>());
+    genomes.dedup();
+    *text += &format!(
+        "{},{},{},{},{},{},{},{},{}",
+        state.tick,
+        state.entities.len(),
+        state.births,
+        state.deaths,
+        genomes.len(),
+        kinds.iter().sum::<u64>(),
+        kinds[0],
+        kinds[1],
+        kinds[2]
+    );
+    for r in 0..state.k {
+        let on_sites: u128 = state.site_stock.iter().skip(r).step_by(state.k).map(|&x| u128::from(x)).sum();
+        let in_entities: u128 = state.ent_stock.iter().skip(r).step_by(state.k).map(|&x| u128::from(x)).sum();
+        let l = &state.ledger;
+        *text += &format!(",{on_sites},{in_entities},{},{},{},{}", l.influx[r], l.dissipated[r], l.converted_in[r], l.converted_out[r]);
+    }
+    text.push('\n');
+}
+
+/// Writes one CSV row per entity of a checkpoint: identity, lineage, stocks and genome.
+/// Genome syntax: genes separated by `;`, each `kind:a>b@sense>=threshold*level` with resource indices.
+pub fn dump_entities(checkpoint: &Path, out: &Path) -> Result<usize, LabError> {
+    let (state, _) = decode(&read(checkpoint)?)?;
+    let mut text = String::from("id,site,x,y,mother,born,genes");
+    for r in 0..state.k {
+        text += &format!(",stock_{r}");
+    }
+    text += ",genome\n";
+    for (i, e) in state.entities.iter().enumerate() {
+        let mother = e.mother.map_or(String::new(), |m| m.to_string());
+        text += &format!("{},{},{},{},{},{},{}", e.id, e.site, e.site % state.topo.width, e.site / state.topo.width, mother, e.born, state.genomes[i].len());
+        for r in 0..state.k {
+            text += &format!(",{}", state.ent_stock[i * state.k + r]);
+        }
+        let genome: Vec<String> = state.genomes[i]
+            .iter()
+            .map(|g| {
+                let sense = if g.sense == lab_core::SENSE_ALWAYS { "always".to_string() } else { format!("{}>={}", g.sense, g.threshold) };
+                format!("{}:{}>{}@{}*{}", g.kind.name(), g.a, g.b, sense, g.level)
+            })
+            .collect();
+        text += &format!(",{}\n", genome.join(";"));
+    }
+    std::fs::write(out, text).map_err(|e| LabError::Io(format!("cannot write {}: {e}", out.display())))?;
+    Ok(state.entities.len())
 }
 
 /// Decodes a checkpoint and returns its tick and state hash.

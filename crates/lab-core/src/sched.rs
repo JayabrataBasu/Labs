@@ -78,7 +78,7 @@ impl Engine {
                 LabError::Config(m) => LabError::Config(format!("rule {}: {m}", rule.id())),
                 other => other,
             })?;
-            // Only a change of entity positions invalidates the site index.
+            // A change of entity positions or of the set of entities invalidates the site index.
             if moved {
                 index = state.site_index();
             }

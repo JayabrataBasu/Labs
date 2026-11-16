@@ -4,7 +4,7 @@ mod view;
 
 use clap::{Parser, Subcommand};
 use lab_core::LabError;
-use run::{checkpoint_hash, execute, hex, Session};
+use run::{checkpoint_hash, dump_entities, execute, hex, Session};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -28,6 +28,9 @@ enum Command {
         out: PathBuf,
         #[arg(long)]
         checkpoint_every: Option<u64>,
+        /// Write population and resource totals to series.csv every this many ticks.
+        #[arg(long)]
+        series_every: Option<u64>,
     },
     /// Continue a run from a checkpoint, with the config that produced it.
     Resume {
@@ -42,6 +45,9 @@ enum Command {
         out: PathBuf,
         #[arg(long)]
         checkpoint_every: Option<u64>,
+        /// Write population and resource totals to series.csv every this many ticks.
+        #[arg(long)]
+        series_every: Option<u64>,
     },
     /// Run a config from tick 0 while serving a read-only viewer on 127.0.0.1.
     View {
@@ -59,30 +65,43 @@ enum Command {
         linger_seconds: u64,
         #[arg(long)]
         checkpoint_every: Option<u64>,
+        /// Write population and resource totals to series.csv every this many ticks.
+        #[arg(long)]
+        series_every: Option<u64>,
         /// Hold at tick 0 until the page (or a POST to /control) resumes the run.
         #[arg(long)]
         start_paused: bool,
     },
     /// Print the tick and state hash of a checkpoint.
     Hash { checkpoint: PathBuf },
+    /// Write one CSV row per entity of a checkpoint (identity, lineage, stocks, genome).
+    Dump {
+        checkpoint: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
 }
 
 fn dispatch(cli: Cli) -> Result<(), LabError> {
     match cli.command {
-        Command::Run { config, ticks, threads, out, checkpoint_every } => {
+        Command::Run { config, ticks, threads, out, checkpoint_every, series_every } => {
             let mut session = Session::fresh(&config, threads)?;
-            let hash = execute(&mut session, ticks, &out, checkpoint_every, |_| {})?;
+            let hash = execute(&mut session, ticks, &out, checkpoint_every, series_every, |_| {})?;
             println!("final tick={} hash={}", session.state.tick, hex(&hash));
         }
-        Command::Resume { checkpoint, config, ticks, threads, out, checkpoint_every } => {
+        Command::Resume { checkpoint, config, ticks, threads, out, checkpoint_every, series_every } => {
             let mut session = Session::resumed(&checkpoint, &config, threads)?;
-            let hash = execute(&mut session, ticks, &out, checkpoint_every, |_| {})?;
+            let hash = execute(&mut session, ticks, &out, checkpoint_every, series_every, |_| {})?;
             println!("final tick={} hash={}", session.state.tick, hex(&hash));
         }
-        Command::View { config, ticks, threads, port, out, linger_seconds, checkpoint_every, start_paused } => {
+        Command::View { config, ticks, threads, port, out, linger_seconds, checkpoint_every, series_every, start_paused } => {
             let mut session = Session::fresh(&config, threads)?;
-            let options = view::ViewOptions { ticks, out: &out, checkpoint_every, port, linger_seconds, start_paused };
+            let options = view::ViewOptions { ticks, out: &out, checkpoint_every, series_every, port, linger_seconds, start_paused };
             view::view(&mut session, &options)?;
+        }
+        Command::Dump { checkpoint, out } => {
+            let rows = dump_entities(&checkpoint, &out)?;
+            println!("wrote {rows} entities to {}", out.display());
         }
         Command::Hash { checkpoint } => {
             let (tick, hash) = checkpoint_hash(&checkpoint)?;

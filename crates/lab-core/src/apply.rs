@@ -10,20 +10,32 @@
 //! 4. Otherwise the amount is withdrawn immediately but credited only after every site has
 //!    been processed. Nothing can be passed on in the same rule step in which it arrived
 //!    from another site.
-//! 5. Moves take effect last, in proposal order.
+//! 5. Conversions happen inside one entity and are immediate.
+//! 6. Moves and relocations take effect next, in proposal order.
+//! 7. Deaths and births take effect last, in proposal order. A removed entity returns what
+//!    it holds to its site; an entity removed earlier in the same step cannot divide.
 //!
 //! Sites therefore never read each other's stocks while a rule is applied, which is what
 //! lets blocks of sites be processed on different threads with identical results.
-use crate::{Delta, EntityMeta, Holder, LabError, SiteIndex, State};
+use crate::{Delta, EntityMeta, Gene, Holder, LabError, SiteIndex, State};
 use rayon::prelude::*;
 use std::ops::Range;
 
 /// What a block of sites hands back for the ordered finishing pass.
 struct BlockOut {
     deposits: Vec<(Holder, u16, u64)>,
-    moves: Vec<(u32, u32)>,
+    /// (entity, destination, must be adjacent)
+    moves: Vec<(u32, u32, bool)>,
+    life: Vec<Life>,
     influx: Vec<u64>,
     dissipated: Vec<u64>,
+    converted_in: Vec<u64>,
+    converted_out: Vec<u64>,
+}
+
+enum Life {
+    Remove(u32),
+    Spawn(u32, Vec<Gene>),
 }
 
 /// Read-only facts every block needs.
@@ -59,7 +71,7 @@ enum Place {
 }
 
 fn touches_entity(delta: &Delta) -> bool {
-    matches!(delta, Delta::Transfer { from: Holder::Entity(_), .. } | Delta::Transfer { to: Holder::Entity(_), .. })
+    matches!(delta, Delta::Transfer { from: Holder::Entity(_), .. } | Delta::Transfer { to: Holder::Entity(_), .. } | Delta::Convert { .. })
 }
 
 fn place(ctx: &Context, block: &Block, holder: Holder, r: usize) -> Result<Place, LabError> {
@@ -85,18 +97,60 @@ fn place(ctx: &Context, block: &Block, holder: Holder, r: usize) -> Result<Place
 }
 
 fn process_block(ctx: &Context, block: Block) -> Result<BlockOut, LabError> {
-    let mut out = BlockOut { deposits: Vec::new(), moves: Vec::new(), influx: vec![0; ctx.k], dissipated: vec![0; ctx.k] };
+    let zero = || vec![0u64; ctx.k];
+    let mut out = BlockOut {
+        deposits: Vec::new(),
+        moves: Vec::new(),
+        life: Vec::new(),
+        influx: zero(),
+        dissipated: zero(),
+        converted_in: zero(),
+        converted_out: zero(),
+    };
     let outside = || LabError::Config("a delta's home site lies outside the site range the rule was asked to cover".into());
-    for &delta in block.deltas {
-        match delta {
+    // An entity-directed delta is at home in this block if the entity currently sits at one of its sites.
+    let at_home = |entity: u32| -> Result<(), LabError> {
+        match ctx.entities.get(entity as usize) {
+            None => Err(LabError::Config(format!("delta refers to entity index {entity}, which does not exist"))),
+            Some(meta) if !block.sites.contains(&meta.site) => Err(outside()),
+            Some(_) => Ok(()),
+        }
+    };
+    for delta in block.deltas {
+        match *delta {
             Delta::Move { entity, to } => {
-                let Some(meta) = ctx.entities.get(entity as usize) else {
-                    return Err(LabError::Config(format!("move refers to entity index {entity}, which does not exist")));
-                };
-                if !block.sites.contains(&meta.site) {
-                    return Err(outside());
+                at_home(entity)?;
+                out.moves.push((entity, to, true));
+            }
+            Delta::Relocate { entity, to } => {
+                at_home(entity)?;
+                out.moves.push((entity, to, false));
+            }
+            Delta::Remove { entity } => {
+                at_home(entity)?;
+                out.life.push(Life::Remove(entity));
+            }
+            Delta::Spawn { parent, ref genome } => {
+                at_home(parent)?;
+                out.life.push(Life::Spawn(parent, genome.clone()));
+            }
+            Delta::Convert { entity, from, to, amount, yield_num, yield_den } => {
+                at_home(entity)?;
+                let (rf, rt) = (from as usize, to as usize);
+                if rf >= ctx.k || rt >= ctx.k || rf == rt {
+                    return Err(LabError::Config(format!("conversion {rf} -> {rt} is not between two distinct existing resources")));
                 }
-                out.moves.push((entity, to));
+                if yield_den == 0 || yield_num > yield_den {
+                    return Err(LabError::Config(format!("conversion yield {yield_num}/{yield_den} must be between 0 and 1")));
+                }
+                let base = (ctx.index.position(entity) - block.ent_base) * ctx.k;
+                let consumed = amount.min(block.ent_stock[base + rf]);
+                let produced = (u128::from(consumed) * u128::from(yield_num) / u128::from(yield_den)) as u64;
+                let credited = block.ent_stock[base + rt].checked_add(produced).ok_or(LabError::Overflow("resource stock"))?;
+                out.converted_out[rf] = out.converted_out[rf].checked_add(consumed).ok_or(LabError::Overflow("conversion ledger"))?;
+                out.converted_in[rt] = out.converted_in[rt].checked_add(produced).ok_or(LabError::Overflow("conversion ledger"))?;
+                block.ent_stock[base + rf] -= consumed;
+                block.ent_stock[base + rt] = credited;
             }
             Delta::Transfer { from, to, resource, amount } => {
                 let r = resource as usize;
@@ -151,7 +205,7 @@ fn process_block(ctx: &Context, block: Block) -> Result<BlockOut, LabError> {
 /// Applies one rule's proposals. `proposals[i]` must hold the deltas whose home sites lie in
 /// `blocks[i]`; the blocks must be contiguous, ascending and cover every site.
 ///
-/// Returns whether any entity changed site. On error the state must be discarded.
+/// Returns whether entity positions or the set of entities changed. On error the state must be discarded.
 pub(crate) fn apply_blocks(
     state: &mut State,
     index: &SiteIndex,
@@ -203,14 +257,18 @@ pub(crate) fn apply_blocks(
         }
     }
 
-    // Ordered finishing pass: ledgers, deferred credits, then moves.
-    let mut moved_any = false;
-    for out in &outs {
-        for r in 0..k {
-            state.ledger.influx[r] = state.ledger.influx[r].checked_add(out.influx[r]).ok_or(LabError::Overflow("influx ledger"))?;
-            state.ledger.dissipated[r] =
-                state.ledger.dissipated[r].checked_add(out.dissipated[r]).ok_or(LabError::Overflow("dissipation ledger"))?;
+    // Ordered finishing pass: ledgers, deferred credits, moves, then deaths and births.
+    let add = |ledger: &mut [u64], part: &[u64], what: &'static str| -> Result<(), LabError> {
+        for (total, &x) in ledger.iter_mut().zip(part) {
+            *total = total.checked_add(x).ok_or(LabError::Overflow(what))?;
         }
+        Ok(())
+    };
+    for out in &outs {
+        add(&mut state.ledger.influx, &out.influx, "influx ledger")?;
+        add(&mut state.ledger.dissipated, &out.dissipated, "dissipation ledger")?;
+        add(&mut state.ledger.converted_in, &out.converted_in, "conversion ledger")?;
+        add(&mut state.ledger.converted_out, &out.converted_out, "conversion ledger")?;
     }
     for out in &outs {
         for &(to, resource, amount) in &out.deposits {
@@ -222,18 +280,83 @@ pub(crate) fn apply_blocks(
             *stock = stock.checked_add(amount).ok_or(LabError::Overflow("resource stock"))?;
         }
     }
+    let mut changed = false;
     let n_sites = state.topo.n_sites();
     for out in &outs {
-        for &(entity, to) in &out.moves {
+        for &(entity, to, adjacent) in &out.moves {
             let meta = &state.entities[entity as usize];
-            if to >= n_sites || !state.topo.neighbours(meta.site).contains(&to) {
-                return Err(LabError::Config(format!("entity {} cannot move from site {} to non-adjacent site {to}", meta.id, meta.site)));
+            if to >= n_sites || (adjacent && !state.topo.neighbours(meta.site).contains(&to)) {
+                return Err(LabError::Config(format!("entity {} cannot move from site {} to site {to}", meta.id, meta.site)));
             }
             state.entities[entity as usize].site = to;
-            moved_any = true;
+            changed = true;
         }
     }
-    Ok(moved_any)
+    if outs.iter().any(|out| !out.life.is_empty()) {
+        changed = true;
+        let mut dead = vec![false; n_entities];
+        for out in outs {
+            for event in out.life {
+                match event {
+                    Life::Remove(entity) => {
+                        let e = entity as usize;
+                        if dead[e] {
+                            continue;
+                        }
+                        dead[e] = true;
+                        let site = state.entities[e].site as usize;
+                        for r in 0..k {
+                            let held = std::mem::take(&mut state.ent_stock[e * k + r]);
+                            let stock = &mut state.site_stock[site * k + r];
+                            *stock = stock.checked_add(held).ok_or(LabError::Overflow("resource stock"))?;
+                        }
+                        state.deaths = state.deaths.checked_add(1).ok_or(LabError::Overflow("death counter"))?;
+                    }
+                    Life::Spawn(parent, genome) => {
+                        let p = parent as usize;
+                        if dead[p] {
+                            continue;
+                        }
+                        if state.entities.len() >= u32::MAX as usize {
+                            return Err(LabError::Overflow("number of entities"));
+                        }
+                        let id = state.next_entity_id;
+                        state.next_entity_id = id.checked_add(1).ok_or(LabError::Overflow("entity id"))?;
+                        for r in 0..k {
+                            let share = state.ent_stock[p * k + r] / 2;
+                            state.ent_stock[p * k + r] -= share;
+                            state.ent_stock.push(share);
+                        }
+                        let mother = &state.entities[p];
+                        let child = EntityMeta { id, site: mother.site, parent: None, mother: Some(mother.id), born: state.tick };
+                        state.entities.push(child);
+                        state.genomes.push(genome);
+                        state.births = state.births.checked_add(1).ok_or(LabError::Overflow("birth counter"))?;
+                    }
+                }
+            }
+        }
+        if dead.contains(&true) {
+            // Offspring were appended after index `n_entities` and are never dead.
+            let alive = |i: usize| i >= n_entities || !dead[i];
+            let mut i = 0;
+            state.entities.retain(|_| {
+                i += 1;
+                alive(i - 1)
+            });
+            let mut i = 0;
+            state.genomes.retain(|_| {
+                i += 1;
+                alive(i - 1)
+            });
+            let mut i = 0;
+            state.ent_stock.retain(|_| {
+                i += 1;
+                alive((i - 1) / k)
+            });
+        }
+    }
+    Ok(changed)
 }
 
 /// Applies a list of deltas as one rule step, single-threaded, treating the whole world as one block.
