@@ -19,3 +19,4 @@ Soft cap: 15 through M2. Rationale and detail live in `PROPOSAL.md` (linked by s
 | DR-011 | Entity model reserves a `parent` containment slot from M1; fusion implemented in M5 | PROPOSAL §1 (Q15), §9 | Approved 2026-11-16 |
 | DR-012 | Evolutionary adaptation only in v1; plasticity is a later ablatable module | PROPOSAL §1 (Q16) | Approved 2026-11-16 |
 | DR-013 | Cross-platform replay is verified by CI (GitHub Actions: Linux, macOS, Windows) comparing state hashes; audience = theory-building at publication-grade rigor | PROPOSAL §12 | Approved 2026-11-16 |
+| DR-014 | Parallel delta application over fixed, thread-independent site blocks with an ordered second pass for cross-block transfers; site index built once per tick unless entities moved. Acceptance: all tests and the pinned reference hash unchanged, measured speed-up | M1-REPORT §6 | Approved 2026-11-16 |
