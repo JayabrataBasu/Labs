@@ -69,7 +69,8 @@ fn hash_changes_on_any_field() {
     let h = [0u8; 32];
     let h0 = state_hash(&base, &h);
     assert_eq!(h0, state_hash(&sample(), &h), "hash is a pure function of state");
-    let variants: Vec<Box<dyn Fn(&mut State)>> = vec![
+    type Mutation = Box<dyn Fn(&mut State)>;
+    let variants: Vec<Mutation> = vec![
         Box::new(|s| s.tick += 1),
         Box::new(|s| s.site_stock[3] += 1),
         Box::new(|s| s.entities[0].site = 1),

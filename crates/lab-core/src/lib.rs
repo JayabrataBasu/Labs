@@ -3,11 +3,13 @@
 #![deny(clippy::float_arithmetic)]
 
 mod codec;
+mod delta;
 mod error;
 mod state;
 mod topology;
 
 pub use codec::{decode, encode, state_hash, FORMAT_VERSION};
+pub use delta::{apply, check_conservation, Delta, Holder};
 pub use error::LabError;
 pub use state::{EntityMeta, Ledger, SiteIndex, State};
 pub use topology::Topology;
