@@ -24,7 +24,7 @@ Status tags: **[V]** verified by output in this session, **[U]** not verified.
 
 - **Rust: 85 tests passed, 0 failed; clippy clean** (`cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`).
 - **Python: 14 tests passed** (`PYTHONPATH=python python3 -m unittest discover -s python/tests`), including an end-to-end experiment: frozen spec, 4 runs, identical hashes whether run with 2 or 3 parallel jobs, all four runs distinct.
-- **M1 CI passed on Linux, macOS and Windows** for the M1 commit (hash `8729cb30…329191` at 1 and 4 threads on all three). This is the cross-platform evidence for the kernel as of M1. **The M2 kernel has not yet run on CI**, and the reference hash was deliberately re-pinned (`b31c045e…ecc9f`, checkpoint format v2), so the CI replay for M2 is untested until pushed.
+- **M1 CI passed on Linux, macOS and Windows** for the M1 commit (hash `8729cb30…329191` at 1 and 4 threads on all three). This is the cross-platform evidence for the kernel as of M1. **M2 on CI (run 43921304029 and the follow-up): passed on Linux, macOS and Windows.** The re-pinned reference hash (`b31c045e…ecc9f`, format v2) and a second pin for the evolving `configs/crossfeed.toml` at 1,500 ticks (`bcdfbbbb…706ad`, births, deaths, mutation, genomes) matched bitwise at 1 and 4 threads on all three. Python tests ran and passed on Linux.
 - Reference replay on this machine after M2: threads 1 and 4 both give `b31c045e…ecc9f`.
 - Editor: opened in headless Chromium, screenshot `docs/img/m3-editor.png` (world fields, stocks, genome editor, map, rule list).
 - Property tests (random worlds including all lifecycle rules, 64 cases each): thread invariance, exact conservation (new identity), stream isolation, resume equivalence, entity bookkeeping (`entities == founders + births − deaths`).
@@ -53,7 +53,7 @@ Reading it, and what it does **not** say:
 
 ## 4. Not verified / known gaps [U]
 
-- **CI for the M2 kernel**; Windows and macOS behaviour of the new code, including the Python tests (which run on Linux only in CI).
+- The Python layer on Windows and macOS (CI runs it on Linux only).
 - **N3 (neutral)** is implemented but its rates must be matched by hand to the intact arm's demography; no experiment uses it yet. N2 only scatters *entities*; resources still diffuse, so it is a proxy for "well mixed".
 - **Editor in a real browser by a person**; Firefox; touch. It was exercised in headless Chromium by screenshot only, plus server tests. Resource renaming does not update references (the page warns).
 - **No group detector, synergy or Price metrics** (M4). The Python `check` only tests that an outcome varies, that an intact arm and null arms exist, and seeds per cell.
