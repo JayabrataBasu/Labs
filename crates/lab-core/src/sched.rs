@@ -1,9 +1,11 @@
-//! The tick loop. Proposals are computed in parallel; application is sequential and ordered,
-//! so the result is independent of the number of threads.
-use crate::{apply, check_conservation, Delta, LabError, Rule, State};
+//! The tick loop. Proposals are computed in parallel over fixed blocks of sites and applied
+//! with the per-site semantics of `apply.rs`, so the result is independent of the number of threads.
+use crate::apply::apply_blocks;
+use crate::{check_conservation, Delta, LabError, Rule, State};
 use lab_rng::{RuleRng, STREAM_INIT};
 use rayon::prelude::*;
 use std::ops::Range;
+use std::sync::Mutex;
 
 /// Sites per work unit. A constant: chunk boundaries must not depend on the thread count.
 pub const CHUNK_SITES: u32 = 1024;
@@ -12,6 +14,14 @@ pub struct Engine {
     rules: Vec<Box<dyn Rule>>,
     seed: u64,
     pool: rayon::ThreadPool,
+    /// Buffers reused from tick to tick. They hold no information between ticks.
+    scratch: Mutex<Scratch>,
+}
+
+#[derive(Default)]
+struct Scratch {
+    proposals: Vec<Vec<Delta>>,
+    gathered: Vec<u64>,
 }
 
 impl Engine {
@@ -31,7 +41,7 @@ impl Engine {
             .num_threads(threads)
             .build()
             .map_err(|e| LabError::Io(format!("cannot start worker threads: {e}")))?;
-        Ok(Engine { rules, seed, pool })
+        Ok(Engine { rules, seed, pool, scratch: Mutex::new(Scratch::default()) })
     }
 
     pub fn rules(&self) -> &[Box<dyn Rule>] {
@@ -51,22 +61,26 @@ impl Engine {
             .step_by(CHUNK_SITES as usize)
             .map(|start| start..start.saturating_add(CHUNK_SITES).min(n_sites))
             .collect();
+        let mut scratch = self.scratch.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Scratch { proposals, gathered } = &mut *scratch;
+        proposals.resize_with(chunks.len(), Vec::new);
+        let mut index = state.site_index();
         for rule in &self.rules {
             let rng = RuleRng { seed: self.seed, stream: rule.stream() };
-            let index = state.site_index();
             let snapshot: &State = state;
-            let proposals: Vec<Vec<Delta>> = self.pool.install(|| {
-                chunks
-                    .par_iter()
-                    .map(|sites| {
-                        let mut out = Vec::new();
-                        rule.propose(snapshot, &index, rng, sites.clone(), &mut out);
-                        out
-                    })
-                    .collect()
+            self.pool.install(|| {
+                proposals.par_iter_mut().zip(chunks.par_iter()).for_each(|(out, sites)| {
+                    out.clear();
+                    rule.propose(snapshot, &index, rng, sites.clone(), out);
+                })
             });
-            for deltas in &proposals {
-                apply(state, deltas)?;
+            let moved = apply_blocks(state, &index, &chunks, proposals, gathered, Some(&self.pool)).map_err(|e| match e {
+                LabError::Config(m) => LabError::Config(format!("rule {}: {m}", rule.id())),
+                other => other,
+            })?;
+            // Only a change of entity positions invalidates the site index.
+            if moved {
+                index = state.site_index();
             }
         }
         check_conservation(state)?;

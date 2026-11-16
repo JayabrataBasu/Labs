@@ -121,7 +121,11 @@ impl State {
             items[*c as usize] = i as u32;
             *c += 1;
         }
-        SiteIndex { offsets, items }
+        let mut position = vec![0u32; items.len()];
+        for (pos, &entity) in items.iter().enumerate() {
+            position[entity as usize] = pos as u32;
+        }
+        SiteIndex { offsets, items, position }
     }
 }
 
@@ -130,9 +134,25 @@ impl State {
 pub struct SiteIndex {
     offsets: Vec<u32>,
     items: Vec<u32>,
+    position: Vec<u32>,
 }
 
 impl SiteIndex {
+    /// All entity indices ordered by site, then id.
+    pub fn items(&self) -> &[u32] {
+        &self.items
+    }
+
+    /// Where entity index `entity` sits in `items()`.
+    pub fn position(&self, entity: u32) -> usize {
+        self.position[entity as usize] as usize
+    }
+
+    /// The part of `items()` occupied by entities at the given contiguous sites.
+    pub fn span(&self, sites: std::ops::Range<u32>) -> std::ops::Range<usize> {
+        self.offsets[sites.start as usize] as usize..self.offsets[sites.end as usize] as usize
+    }
+
     /// Indices into `State::entities` of the entities at `site`, ascending id.
     pub fn at(&self, site: u32) -> &[u32] {
         let s = site as usize;
