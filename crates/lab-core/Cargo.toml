@@ -7,3 +7,4 @@ publish.workspace = true
 [dependencies]
 lab-rng = { path = "../lab-rng" }
 sha2 = "0.10"
+rayon = "1"
