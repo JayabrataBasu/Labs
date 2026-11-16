@@ -4,7 +4,7 @@ name: replay
 
 on:
   push:
-    branches: [master]
+    branches: [master, m2-evolution]
   pull_request:
     branches: [master]
 
