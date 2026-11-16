@@ -32,17 +32,21 @@ jobs:
         run: |
           cargo build --release --locked -p lab-cli
           PYTHONPATH=python python3 -m unittest discover -s python/tests -v
-      - name: Replay reference run
+      - name: Replay pinned worlds
         shell: bash
         run: |
-          expected="$(tr -d '[:space:]' < configs/reference.sha256)"
-          for threads in 1 4; do
-            line="$(cargo run --release --locked -q -p lab-cli -- run configs/reference.toml --ticks 2000 --threads "$threads" --out "replay-$threads" | tr -d '\r')"
-            echo "threads=$threads: $line"
-            actual="${line##*hash=}"
-            if [ "$actual" != "$expected" ]; then
-              echo "::error::state hash mismatch on ${{ matrix.os }} with $threads threads: expected $expected, got $actual"
-              exit 1
-            fi
+          # name:ticks pairs; each config has a pinned hash in configs/<name>.sha256 (DR-013).
+          for spec in reference:2000 crossfeed:1500; do
+            name="${spec%%:*}"; ticks="${spec##*:}"
+            expected="$(tr -d '[:space:]' < "configs/$name.sha256")"
+            for threads in 1 4; do
+              line="$(cargo run --release --locked -q -p lab-cli -- run "configs/$name.toml" --ticks "$ticks" --threads "$threads" --out "replay-$name-$threads" | tr -d '\r')"
+              echo "$name threads=$threads: $line"
+              actual="${line##*hash=}"
+              if [ "$actual" != "$expected" ]; then
+                echo "::error::$name state hash mismatch on ${{ matrix.os }} with $threads threads: expected $expected, got $actual"
+                exit 1
+              fi
+            done
+            echo "$name replay hash matches on ${{ matrix.os }}: $expected"
           done
-          echo "replay hash matches on ${{ matrix.os }}: $expected"
