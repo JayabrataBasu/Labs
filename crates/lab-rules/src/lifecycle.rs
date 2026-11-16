@@ -161,17 +161,20 @@ pub const STARVATION_ID: &str = "death.starvation";
 #[serde(deny_unknown_fields)]
 struct StarvationParams {
     resource: String,
+    /// Whether a dead entity's stocks return to its site (true) or leave the system (false).
+    recycle: bool,
 }
 
 pub struct Starvation {
     stream: u16,
     resource: usize,
+    recycle: bool,
 }
 
 impl Starvation {
     pub fn new(cfg: &RuleCfg, resources: &[String]) -> Result<Self, LabError> {
         let p: StarvationParams = params(cfg)?;
-        Ok(Starvation { stream: cfg.stream, resource: resource_index(cfg, &p.resource, resources)? as usize })
+        Ok(Starvation { stream: cfg.stream, resource: resource_index(cfg, &p.resource, resources)? as usize, recycle: p.recycle })
     }
 }
 
@@ -181,7 +184,7 @@ impl Rule for Starvation {
         for site in sites {
             for &entity in index.at(site) {
                 if state.ent_stock[entity as usize * state.k + self.resource] == 0 {
-                    out.push(Delta::Remove { entity });
+                    out.push(Delta::Remove { entity, recycle: self.recycle });
                 }
             }
         }
@@ -196,18 +199,20 @@ pub const RANDOM_DEATH_ID: &str = "death.random";
 #[serde(deny_unknown_fields)]
 struct RandomDeathParams {
     probability_ppm: u32,
+    recycle: bool,
 }
 
 pub struct RandomDeath {
     stream: u16,
     probability_ppm: u32,
+    recycle: bool,
 }
 
 impl RandomDeath {
     pub fn new(cfg: &RuleCfg) -> Result<Self, LabError> {
         let p: RandomDeathParams = params(cfg)?;
         check_ppm(cfg, p.probability_ppm)?;
-        Ok(RandomDeath { stream: cfg.stream, probability_ppm: p.probability_ppm })
+        Ok(RandomDeath { stream: cfg.stream, probability_ppm: p.probability_ppm, recycle: p.recycle })
     }
 }
 
@@ -218,7 +223,7 @@ impl Rule for RandomDeath {
         for site in sites {
             for &entity in index.at(site) {
                 if below(rng.draw(tick, state.entities[entity as usize].id, DECISION)[0], PPM) < self.probability_ppm {
-                    out.push(Delta::Remove { entity });
+                    out.push(Delta::Remove { entity, recycle: self.recycle });
                 }
             }
         }

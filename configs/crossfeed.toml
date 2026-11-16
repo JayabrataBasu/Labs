@@ -65,7 +65,7 @@ params = { energy = "E", base_cost = 2, gene_cost = 1, yield_num = 1, yield_den 
 id = "death.starvation"
 version = 1
 stream = 7
-params = { resource = "E" }
+params = { resource = "E", recycle = true }
 
 [[rules]]
 id = "reproduction.division"

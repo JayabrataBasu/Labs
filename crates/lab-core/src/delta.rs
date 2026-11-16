@@ -28,8 +28,9 @@ pub enum Delta {
     Move { entity: u32, to: u32 },
     /// Relocate an entity to any site (used by well-mixed control worlds).
     Relocate { entity: u32, to: u32 },
-    /// The entity ceases to exist; whatever it holds is returned to its site.
-    Remove { entity: u32 },
+    /// The entity ceases to exist. With `recycle` what it holds returns to its site; without, it
+    /// leaves the system as dissipation.
+    Remove { entity: u32, recycle: bool },
     /// The parent divides: the offspring appears at the parent's site with half of each of
     /// the parent's stocks (rounded down) and the given genome.
     Spawn { parent: u32, genome: Vec<Gene> },

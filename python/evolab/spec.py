@@ -9,9 +9,11 @@ design and the analysis plan cannot change after outcomes have been seen without
     ticks = 3000
     series_every = 100
     threads = 1                                  # threads per run; runs themselves are parallel
-    seeds = [1, 2, 3, 4, 5]
+    seeds = [1001, 1002, 1003, 1004, 1005]       # registered runs need seeds >= 1000 (exploration uses < 1000)
     primary_outcome = "entities"                 # column of series.csv, read at the last tick
-    analysis_plan = "free text: what will be compared and how"
+    aim = "the question this experiment asks"                      # ADEMP: Aims
+    estimand = "the quantity compared, e.g. median final population per arm"   # ADEMP: Estimand
+    analysis_plan = "methods and performance measures: what is compared and how"   # ADEMP: Methods, Performance
 
     [[arms]]
     name = "intact"
@@ -34,7 +36,11 @@ from pathlib import Path
 
 from . import toml_out, transforms
 
-REQUIRED = ["name", "base_config", "ticks", "series_every", "threads", "seeds", "primary_outcome", "analysis_plan", "arms"]
+REQUIRED = ["name", "base_config", "ticks", "series_every", "threads", "seeds", "primary_outcome", "aim", "estimand", "analysis_plan", "arms"]
+
+# Seed firewall (DR-019). Seeds below this are for exploration and tuning; a registered (frozen)
+# experiment may only use seeds at or above it, so confirmatory runs are never the runs the design was tuned on.
+EXPLORATORY_SEED_LIMIT = 1000
 
 
 def sha256(data: bytes) -> str:
@@ -112,6 +118,9 @@ def frozen_path(spec_path):
 
 def freeze(spec_path):
     spec, text, base_path = load(spec_path)
+    low = [s for s in spec["seeds"] if s < EXPLORATORY_SEED_LIMIT]
+    if low:
+        raise ValueError(f"a frozen (registered) spec may not use seeds below {EXPLORATORY_SEED_LIMIT}, which are reserved for exploration: {low}")
     base_text = base_path.read_text()
     runs = expand(spec, tomllib.loads(base_text))
     record = {"spec_sha256": sha256(text.encode()), "base_config_sha256": sha256(base_text.encode()),

@@ -1,0 +1,25 @@
+# EXPLORATORY tuning sweep (DR-019). Not registered; seeds < 1000. Question: under what spatial
+# mixing does the secretion gene persist in the intact cross-feeding world? Findings from this sweep
+# may be used to choose settings for a later registered design, which must use fresh seeds >= 1000.
+name = "rq1-tuning-explore"
+base_config = "../configs/crossfeed.toml"
+ticks = 2500
+series_every = 500
+threads = 1
+seeds = [1, 2, 3]
+primary_outcome = "secrete_genes"
+aim = "Find where, if anywhere, the secretion gene persists when mixing (walk probability) and B diffusion vary."
+estimand = "Final count of secrete genes per cell, over 3 seeds."
+analysis_plan = "Exploratory only: look for cells where secrete_genes stays well above zero; no inference."
+
+[[arms]]
+name = "intact"
+transforms = []
+
+[[sweeps]]
+path = "rules.9.params.probability_ppm"
+values = [0, 20000, 100000, 400000]
+
+[[sweeps]]
+path = "rules.3.params.divisor"
+values = [8, 60]

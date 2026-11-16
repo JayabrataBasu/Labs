@@ -31,7 +31,7 @@ fn rule_text(kind: usize, stream: usize, resource: usize, a: u64, b: u64, k: usi
                 1 + a % 12, 1 + b % 6, a % 400_000, b % 300_000, a % 200_000, b % 200_000
             ),
         ),
-        7 => ("death.starvation", format!("resource = \"{r}\"")),
+        7 => ("death.starvation", format!("resource = \"{r}\", recycle = {}", !a.is_multiple_of(3))),
         8 => ("mix.relocate", format!("probability_ppm = {}", a % 1_000_001)),
         _ => ("decay.fraction", format!("resource = \"{r}\", divisor = {}", 1 + a % 9)),
     };

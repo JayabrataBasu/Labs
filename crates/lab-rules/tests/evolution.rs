@@ -106,7 +106,7 @@ fn division_splits_stocks_and_records_lineage() {
 
 #[test]
 fn starvation_removes_and_returns_stocks() {
-    let rules = rule("death.starvation", 1, "resource = \"E\"");
+    let rules = rule("death.starvation", 1, "resource = \"E\", recycle = true");
     let s = run(&world((1, 1), [0; 4], 2, [0, 7, 0, 0], "", &rules), 1, 1);
     assert!(s.entities.is_empty());
     assert_eq!(s.site_stock, vec![0, 14, 0, 0]);
@@ -116,11 +116,22 @@ fn starvation_removes_and_returns_stocks() {
 }
 
 #[test]
+fn death_without_recycling_dissipates_stocks_and_still_conserves() {
+    let silent = rule("death.starvation", 1, "resource = \"E\", recycle = false");
+    let s = run(&world((1, 1), [0; 4], 2, [0, 7, 3, 0], "", &silent), 1, 1);
+    assert!(s.entities.is_empty());
+    assert_eq!(s.site_stock, vec![0; 4], "nothing returns to the site");
+    assert_eq!(s.ledger.dissipated, vec![0, 14, 6, 0], "what the dead held leaves the system as dissipation");
+    let culled = run(&world((1, 1), [0; 4], 4, [1, 1, 0, 0], "", &rule("shock.cull", 1, "tick = 0, probability_ppm = 1000000, recycle = false")), 1, 1);
+    assert_eq!((culled.entities.len(), culled.site_stock.iter().sum::<u64>(), culled.ledger.dissipated[0]), (0, 0, 4));
+}
+
+#[test]
 fn random_birth_and_death_ignore_stocks() {
-    let rules = rule("reproduction.random", 1, &format!("probability_ppm = 1000000, site_capacity = 8, {NO_MUTATION}")) + &rule("death.random", 2, "probability_ppm = 0");
+    let rules = rule("reproduction.random", 1, &format!("probability_ppm = 1000000, site_capacity = 8, {NO_MUTATION}")) + &rule("death.random", 2, "probability_ppm = 0, recycle = true");
     let s = run(&world((1, 1), [0; 4], 1, [0; 4], "", &rules), 3, 1);
     assert_eq!(s.entities.len(), 8, "1 -> 2 -> 4 -> 8 with no resources at all");
-    let rules = rule("death.random", 2, "probability_ppm = 1000000");
+    let rules = rule("death.random", 2, "probability_ppm = 1000000, recycle = true");
     assert!(run(&world((1, 1), [0; 4], 5, [9; 4], "", &rules), 1, 1).entities.is_empty());
 }
 
@@ -206,7 +217,7 @@ fn decay_relocate_shock_and_cull() {
     assert_eq!([after.site_stock[1], after.site_stock[5], after.site_stock[9]], [0, 9, 9]);
     assert_eq!([after.site_stock[2], after.site_stock[6]], [2, 6]);
 
-    let cull = rule("shock.cull", 1, "tick = 1, probability_ppm = 1000000");
+    let cull = rule("shock.cull", 1, "tick = 1, probability_ppm = 1000000, recycle = true");
     assert_eq!(run(&world((2, 2), [0; 4], 30, [1; 4], "", &cull), 1, 1).entities.len(), 30);
     let culled = run(&world((2, 2), [0; 4], 30, [1; 4], "", &cull), 2, 1);
     assert!(culled.entities.is_empty());

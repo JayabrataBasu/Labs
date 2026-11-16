@@ -62,14 +62,14 @@ pub const CATALOG: &[(&str, &str, &str)] = &[
         "Entities divide with a fixed probability whatever they hold (null world N3)",
         r#"{"probability_ppm":20000,"site_capacity":4,"mutation":{"point_ppm":0,"point_magnitude":0,"retarget_ppm":0,"duplicate_ppm":0,"delete_ppm":0,"max_genes":16}}"#,
     ),
-    (lifecycle::STARVATION_ID, "Entities holding none of a resource die", r#"{"resource":"$R0"}"#),
-    (lifecycle::RANDOM_DEATH_ID, "Entities die with a fixed probability (null world N3)", r#"{"probability_ppm":20000}"#),
+    (lifecycle::STARVATION_ID, "Entities holding none of a resource die (recycle: their stocks return to the site, or vanish)", r#"{"resource":"$R0","recycle":true}"#),
+    (lifecycle::RANDOM_DEATH_ID, "Entities die with a fixed probability (null world N3)", r#"{"probability_ppm":20000,"recycle":true}"#),
     (
         environment::SHOCK_ID,
         "At one tick, add or remove a resource on a rectangle of sites",
         r#"{"tick":1000,"action":"remove","resource":"$R0","amount":100,"x":0,"y":0,"width":10,"height":10}"#,
     ),
-    (environment::CULL_ID, "At one tick, remove each entity with a probability", r#"{"tick":1000,"probability_ppm":500000}"#),
+    (environment::CULL_ID, "At one tick, remove each entity with a probability", r#"{"tick":1000,"probability_ppm":500000,"recycle":true}"#),
 ];
 
 /// Builds the configured rules, in config order.

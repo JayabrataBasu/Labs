@@ -13,7 +13,8 @@
 //! 5. Conversions happen inside one entity and are immediate.
 //! 6. Moves and relocations take effect next, in proposal order.
 //! 7. Deaths and births take effect last, in proposal order. A removed entity returns what
-//!    it holds to its site; an entity removed earlier in the same step cannot divide.
+//!    it holds to its site (`recycle`) or dissipates it; an entity removed earlier in the same
+//!    step cannot divide.
 //!
 //! Sites therefore never read each other's stocks while a rule is applied, which is what
 //! lets blocks of sites be processed on different threads with identical results.
@@ -34,7 +35,7 @@ struct BlockOut {
 }
 
 enum Life {
-    Remove(u32),
+    Remove(u32, bool),
     Spawn(u32, Vec<Gene>),
 }
 
@@ -126,9 +127,9 @@ fn process_block(ctx: &Context, block: Block) -> Result<BlockOut, LabError> {
                 at_home(entity)?;
                 out.moves.push((entity, to, false));
             }
-            Delta::Remove { entity } => {
+            Delta::Remove { entity, recycle } => {
                 at_home(entity)?;
-                out.life.push(Life::Remove(entity));
+                out.life.push(Life::Remove(entity, recycle));
             }
             Delta::Spawn { parent, ref genome } => {
                 at_home(parent)?;
@@ -298,7 +299,7 @@ pub(crate) fn apply_blocks(
         for out in outs {
             for event in out.life {
                 match event {
-                    Life::Remove(entity) => {
+                    Life::Remove(entity, recycle) => {
                         let e = entity as usize;
                         if dead[e] {
                             continue;
@@ -307,8 +308,8 @@ pub(crate) fn apply_blocks(
                         let site = state.entities[e].site as usize;
                         for r in 0..k {
                             let held = std::mem::take(&mut state.ent_stock[e * k + r]);
-                            let stock = &mut state.site_stock[site * k + r];
-                            *stock = stock.checked_add(held).ok_or(LabError::Overflow("resource stock"))?;
+                            let target = if recycle { &mut state.site_stock[site * k + r] } else { &mut state.ledger.dissipated[r] };
+                            *target = target.checked_add(held).ok_or(LabError::Overflow("resource stock"))?;
                         }
                         state.deaths = state.deaths.checked_add(1).ok_or(LabError::Overflow("death counter"))?;
                     }

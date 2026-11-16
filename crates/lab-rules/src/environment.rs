@@ -186,12 +186,14 @@ pub const CULL_ID: &str = "shock.cull";
 struct CullParams {
     tick: u64,
     probability_ppm: u32,
+    recycle: bool,
 }
 
 pub struct Cull {
     stream: u16,
     tick: u64,
     probability_ppm: u32,
+    recycle: bool,
 }
 
 impl Cull {
@@ -200,7 +202,7 @@ impl Cull {
         if p.probability_ppm > PPM {
             return Err(invalid(cfg, "probability_ppm must be between 0 and 1000000"));
         }
-        Ok(Cull { stream: cfg.stream, tick: p.tick, probability_ppm: p.probability_ppm })
+        Ok(Cull { stream: cfg.stream, tick: p.tick, probability_ppm: p.probability_ppm, recycle: p.recycle })
     }
 }
 
@@ -213,7 +215,7 @@ impl Rule for Cull {
         for site in sites {
             for &entity in index.at(site) {
                 if below(rng.draw(state.tick as u32, state.entities[entity as usize].id, 0)[0], PPM) < self.probability_ppm {
-                    out.push(Delta::Remove { entity });
+                    out.push(Delta::Remove { entity, recycle: self.recycle });
                 }
             }
         }
