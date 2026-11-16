@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lab viewer</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #14161a; color: #e6e6e6; margin: 1.5rem; }
+  h1 { font-size: 1.1rem; font-weight: 600; margin: 0 0 .75rem; }
+  #bar { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; margin-bottom: .75rem; }
+  button, select { font: inherit; padding: .3rem .7rem; background: #2a2e36; color: inherit; border: 1px solid #454a55; border-radius: 4px; }
+  button:hover { background: #363b45; }
+  canvas { image-rendering: pixelated; width: min(80vmin, 720px); height: auto; border: 1px solid #454a55; background: #000; }
+  #status, #legend { font-variant-numeric: tabular-nums; color: #b8bcc6; }
+  #hash { font-family: ui-monospace, monospace; font-size: .8rem; word-break: break-all; color: #9fd69f; }
+  .note { color: #8a8f99; font-size: .85rem; max-width: 720px; }
+</style>
+</head>
+<body>
+<h1>Lab viewer <span class="note">(read-only: watching does not change the run)</span></h1>
+<div id="bar">
+  <button id="pause">Pause</button>
+  <button id="resume">Resume</button>
+  <button id="step">Step</button>
+  <label>Resource <select id="resource"></select></label>
+  <span id="status">connecting…</span>
+</div>
+<canvas id="view" width="1" height="1"></canvas>
+<p id="legend"></p>
+<p id="hash"></p>
+<p class="note">Brightness shows the amount of the selected resource at each site, scaled to the current maximum. Orange marks sites holding entities; stronger orange means more entities.</p>
+<script>
+const canvas = document.getElementById('view');
+const ctx = canvas.getContext('2d');
+const statusEl = document.getElementById('status');
+const legendEl = document.getElementById('legend');
+const hashEl = document.getElementById('hash');
+const select = document.getElementById('resource');
+let meta = null;
+
+function control(command) { fetch('/control', { method: 'POST', body: command }); }
+document.getElementById('pause').onclick = () => control('pause');
+document.getElementById('resume').onclick = () => control('resume');
+document.getElementById('step').onclick = () => { control('pause'); control('step'); };
+
+async function refresh() {
+  try {
+    meta = await (await fetch('/meta')).json();
+    if (select.options.length === 0) {
+      meta.resources.forEach((name, i) => select.add(new Option(name, i)));
+      canvas.width = meta.width;
+      canvas.height = meta.height;
+    }
+    const buffer = await (await fetch('/frame?resource=' + select.value)).arrayBuffer();
+    draw(buffer);
+    const state = meta.done ? 'finished' : (meta.paused ? 'paused' : 'running');
+    statusEl.textContent = `tick ${meta.tick} / ${meta.ticks_total} — ${state}`;
+    hashEl.textContent = meta.final_hash ? 'final state hash: ' + meta.final_hash : '';
+  } catch (error) {
+    statusEl.textContent = 'run ended or viewer not reachable';
+  }
+}
+
+function draw(buffer) {
+  const n = meta.width * meta.height;
+  const data = new DataView(buffer);
+  const image = ctx.createImageData(meta.width, meta.height);
+  let maxStock = 1, maxCount = 1, entities = 0, total = 0;
+  for (let i = 0; i < n; i++) {
+    maxStock = Math.max(maxStock, data.getUint32(8 + 4 * i, true));
+    maxCount = Math.max(maxCount, data.getUint32(8 + 4 * (n + i), true));
+  }
+  for (let i = 0; i < n; i++) {
+    const stock = data.getUint32(8 + 4 * i, true);
+    const count = data.getUint32(8 + 4 * (n + i), true);
+    total += stock; entities += count;
+    const level = Math.round(200 * stock / maxStock);
+    const mark = count > 0 ? 0.45 + 0.55 * count / maxCount : 0;
+    image.data[4 * i] = Math.round(level * 0.35 * (1 - mark) + 255 * mark);
+    image.data[4 * i + 1] = Math.round(level * 0.8 * (1 - mark) + 140 * mark);
+    image.data[4 * i + 2] = Math.round(level * (1 - mark) + 20 * mark);
+    image.data[4 * i + 3] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
+  legendEl.textContent = `${select.selectedOptions[0].text}: total on sites ${total}, max per site ${maxStock} · entities ${entities}`;
+}
+
+setInterval(refresh, 100);
+refresh();
+</script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 //! `lab`: command-line front end of the evolutionary laboratory.
 mod run;
+mod view;
 
 use clap::{Parser, Subcommand};
 use lab_core::LabError;
@@ -42,6 +43,26 @@ enum Command {
         #[arg(long)]
         checkpoint_every: Option<u64>,
     },
+    /// Run a config from tick 0 while serving a read-only viewer on 127.0.0.1.
+    View {
+        config: PathBuf,
+        #[arg(long)]
+        ticks: u64,
+        #[arg(long)]
+        threads: usize,
+        #[arg(long)]
+        port: u16,
+        #[arg(long)]
+        out: PathBuf,
+        /// Keep serving the final state for this long after the run ends.
+        #[arg(long)]
+        linger_seconds: u64,
+        #[arg(long)]
+        checkpoint_every: Option<u64>,
+        /// Hold at tick 0 until the page (or a POST to /control) resumes the run.
+        #[arg(long)]
+        start_paused: bool,
+    },
     /// Print the tick and state hash of a checkpoint.
     Hash { checkpoint: PathBuf },
 }
@@ -57,6 +78,11 @@ fn dispatch(cli: Cli) -> Result<(), LabError> {
             let mut session = Session::resumed(&checkpoint, &config, threads)?;
             let hash = execute(&mut session, ticks, &out, checkpoint_every, |_| {})?;
             println!("final tick={} hash={}", session.state.tick, hex(&hash));
+        }
+        Command::View { config, ticks, threads, port, out, linger_seconds, checkpoint_every, start_paused } => {
+            let mut session = Session::fresh(&config, threads)?;
+            let options = view::ViewOptions { ticks, out: &out, checkpoint_every, port, linger_seconds, start_paused };
+            view::view(&mut session, &options)?;
         }
         Command::Hash { checkpoint } => {
             let (tick, hash) = checkpoint_hash(&checkpoint)?;
