@@ -1,0 +1,11 @@
+[package]
+name = "lab-rules"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+lab-core = { path = "../lab-core" }
+lab-rng = { path = "../lab-rng" }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"

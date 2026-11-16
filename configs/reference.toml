@@ -1,0 +1,45 @@
+# Reference world for the cross-platform replay check (DR-013). Do not edit: its hash is pinned
+# in configs/reference.sha256. Every field is required; there are no defaults.
+schema_version = 1
+seed = 20261116
+
+[world]
+width = 64
+height = 64
+wrap = true
+resources = ["A", "B"]
+
+[init]
+site_stock = [50, 0]
+entities = 2000
+entity_stock = [5, 0]
+
+[[rules]]
+id = "influx.constant"
+version = 1
+stream = 1
+params = { resource = "A", amount = 2, every = 1 }
+
+[[rules]]
+id = "diffusion.integer"
+version = 1
+stream = 2
+params = { resource = "A", divisor = 8 }
+
+[[rules]]
+id = "uptake.fixed"
+version = 1
+stream = 3
+params = { resource = "A", amount = 3 }
+
+[[rules]]
+id = "maintenance.fixed"
+version = 1
+stream = 4
+params = { resource = "A", amount = 1 }
+
+[[rules]]
+id = "move.random"
+version = 1
+stream = 5
+params = { probability_ppm = 250000 }

@@ -3,6 +3,7 @@
 #![deny(clippy::float_arithmetic)]
 
 mod codec;
+pub mod config;
 mod delta;
 mod error;
 mod rule;
