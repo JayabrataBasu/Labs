@@ -61,7 +61,8 @@ Start: read this file and the decision records, state the current stage and what
 
 ## Project pointers (added 2026-11-16)
 
-- Current stage and proposal: `docs/PROPOSAL.md` (draft, awaiting owner approval; decisions P-1..P-12 proposed there).
-- Decision records, once approved: `docs/DECISIONS.md` (single append-only file; the prior project `~/firma` drowned in 66 ADRs, so keep them few).
+- Scope: `docs/PROPOSAL.md` (approved 2026-11-16). Current state and evidence: the latest `docs/M*-REPORT.md`. Plans: `docs/plans/`.
+- Git: the owner is the sole author; no attribution trailers; commit or push only when the owner asks.
+- Decision records: `docs/DECISIONS.md` (single append-only file; the prior project `~/firma` drowned in 66 ADRs, so keep them few).
 - Owner preferences: results must reproduce on other machines; live visuals and a visual world editor wanted; owner edits configs/visuals, AI writes code.
 - `~/firma` is read-only prior art for lessons only; copy no code.

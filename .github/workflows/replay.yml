@@ -1,0 +1,43 @@
+# Cross-platform replay check (DR-013): the reference config must produce the pinned state
+# hash on every platform and at every thread count.
+name: replay
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        shell: bash
+        run: rustup toolchain install && rustup show active-toolchain
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo test --workspace --release --locked
+      - name: Replay reference run
+        shell: bash
+        run: |
+          expected="$(tr -d '[:space:]' < configs/reference.sha256)"
+          for threads in 1 4; do
+            line="$(cargo run --release --locked -q -p lab-cli -- run configs/reference.toml --ticks 2000 --threads "$threads" --out "replay-$threads" | tr -d '\r')"
+            echo "threads=$threads: $line"
+            actual="${line##*hash=}"
+            if [ "$actual" != "$expected" ]; then
+              echo "::error::state hash mismatch on ${{ matrix.os }} with $threads threads: expected $expected, got $actual"
+              exit 1
+            fi
+          done
+          echo "replay hash matches on ${{ matrix.os }}: $expected"
