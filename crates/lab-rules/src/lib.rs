@@ -37,6 +37,41 @@ pub const RULE_IDS: &[&str] = &[
     environment::CULL_ID,
 ];
 
+/// What the world editor offers when a rule is added: `(id, one-line description, params as JSON)`.
+/// `$R0`, `$R1`, `$R2` stand for the world's first, second and third resource names.
+pub const CATALOG: &[(&str, &str, &str)] = &[
+    (influx::ID, "The outside world adds a resource to every site", r#"{"resource":"$R0","amount":2,"every":1}"#),
+    (diffusion::ID, "Resource spreads to neighbouring sites", r#"{"resource":"$R0","divisor":8}"#),
+    (environment::DECAY_ID, "A fraction of a resource at each site is lost", r#"{"resource":"$R0","divisor":20}"#),
+    (uptake::ID, "Entities take a fixed amount from their site (no genes)", r#"{"resource":"$R0","amount":3}"#),
+    (maintenance::ID, "Entities pay a fixed cost per tick (no genes)", r#"{"resource":"$R0","amount":1}"#),
+    (
+        metabolism::ID,
+        "Entities act through their genes and pay for carrying them",
+        r#"{"energy":"$R0","base_cost":2,"gene_cost":1,"yield_num":1,"yield_den":2,"reactions":[["$R1","$R2"]],"secretion":true}"#,
+    ),
+    (movement::ID, "Entities step to a random neighbouring site", r#"{"probability_ppm":100000}"#),
+    (environment::RELOCATE_ID, "Entities jump to any site: removes spatial structure (null world N2)", r#"{"probability_ppm":100000}"#),
+    (
+        lifecycle::DIVISION_ID,
+        "Entities holding enough of a resource divide; offspring may mutate",
+        r#"{"resource":"$R0","threshold":200,"site_capacity":4,"mutation":{"point_ppm":20000,"point_magnitude":5,"retarget_ppm":2000,"duplicate_ppm":2000,"delete_ppm":5000,"max_genes":16}}"#,
+    ),
+    (
+        lifecycle::RANDOM_BIRTH_ID,
+        "Entities divide with a fixed probability whatever they hold (null world N3)",
+        r#"{"probability_ppm":20000,"site_capacity":4,"mutation":{"point_ppm":0,"point_magnitude":0,"retarget_ppm":0,"duplicate_ppm":0,"delete_ppm":0,"max_genes":16}}"#,
+    ),
+    (lifecycle::STARVATION_ID, "Entities holding none of a resource die", r#"{"resource":"$R0"}"#),
+    (lifecycle::RANDOM_DEATH_ID, "Entities die with a fixed probability (null world N3)", r#"{"probability_ppm":20000}"#),
+    (
+        environment::SHOCK_ID,
+        "At one tick, add or remove a resource on a rectangle of sites",
+        r#"{"tick":1000,"action":"remove","resource":"$R0","amount":100,"x":0,"y":0,"width":10,"height":10}"#,
+    ),
+    (environment::CULL_ID, "At one tick, remove each entity with a probability", r#"{"tick":1000,"probability_ppm":500000}"#),
+];
+
 /// Builds the configured rules, in config order.
 pub fn build(cfg: &Config) -> Result<Vec<Box<dyn Rule>>, LabError> {
     let world = (cfg.world.width, cfg.world.height);

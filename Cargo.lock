@@ -379,6 +379,7 @@ dependencies = [
  "proptest",
  "serde_json",
  "tiny_http",
+ "toml",
 ]
 
 [[package]]

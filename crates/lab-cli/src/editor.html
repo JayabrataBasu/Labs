@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lab world editor</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: system-ui, sans-serif; background: #14161a; color: #e6e6e6; margin: 0; }
+  header { position: sticky; top: 0; z-index: 2; background: #1b1e24; border-bottom: 1px solid #343944; padding: .6rem 1.2rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 1rem; margin: 0; }
+  main { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(420px, 1.3fr); gap: 1.2rem; padding: 1.2rem; align-items: start; }
+  section { background: #1b1e24; border: 1px solid #343944; border-radius: 6px; padding: .8rem 1rem; margin-bottom: 1rem; }
+  h2 { font-size: .95rem; margin: 0 0 .6rem; }
+  label { display: inline-flex; flex-direction: column; font-size: .78rem; color: #aeb3bf; gap: .15rem; margin: 0 .6rem .5rem 0; }
+  input, select, textarea, button { font: inherit; background: #262a33; color: inherit; border: 1px solid #454a55; border-radius: 4px; padding: .25rem .45rem; }
+  input[type=number] { width: 6.5rem; } input[type=text] { width: 9rem; }
+  textarea { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; font-size: .8rem; min-height: 3.2rem; }
+  button { cursor: pointer; } button:hover { background: #363b45; }
+  button.primary { background: #2f5d3a; border-color: #4a8a58; } button.danger { color: #ff9a9a; }
+  .row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0 .4rem; }
+  .card { border: 1px solid #343944; border-radius: 5px; padding: .5rem .6rem; margin-bottom: .5rem; background: #20242b; }
+  .card.bad { border-color: #b85c5c; }
+  .hint { color: #8a8f99; font-size: .8rem; }
+  #status { font-size: .85rem; } .ok { color: #8fd18f; } .err { color: #ff9a9a; white-space: pre-wrap; }
+  canvas { width: 100%; max-width: 680px; image-rendering: pixelated; border: 1px solid #454a55; background: #000; cursor: crosshair; touch-action: none; }
+  .swatch { display: inline-block; width: .8rem; height: .8rem; border-radius: 2px; margin-right: .3rem; vertical-align: -1px; }
+  @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Lab world editor</h1>
+  <button id="save" class="primary">Save to file</button>
+  <button id="reload">Reload from file</button>
+  <span id="status" class="hint">loading…</span>
+</header>
+<main>
+  <div>
+    <section>
+      <h2>World</h2>
+      <div class="row">
+        <label>Width<input type="number" id="width" min="1" max="4096"></label>
+        <label>Height<input type="number" id="height" min="1" max="4096"></label>
+        <label>Wrap<select id="wrap"><option value="true">torus</option><option value="false">walls</option></select></label>
+        <label>Seed<input type="text" id="seed"></label>
+      </div>
+      <label style="display:flex">Resources (comma-separated)<input type="text" id="resources" style="width:100%"></label>
+      <p class="hint">Renaming a resource does not update the places that mention it; fix those by hand below.</p>
+    </section>
+    <section>
+      <h2>Initial population</h2>
+      <div class="row"><label>Entities<input type="number" id="entities" min="0"></label></div>
+      <div id="stocks"></div>
+      <p class="hint">Founders are placed at random sites by the seeded initial stream.</p>
+    </section>
+    <section>
+      <h2>Founder genome</h2>
+      <div id="genes"></div>
+      <button id="addGene">+ gene</button>
+      <p class="hint">Each gene: what it does, which resources, how much per tick, and an optional gate (acts only if the sensed resource at the site is at least the threshold).</p>
+    </section>
+  </div>
+  <div>
+    <section>
+      <h2>Map</h2>
+      <div class="row">
+        <label>Draw<select id="mode"><option value="patch">resource patch</option><option value="shock">shock rectangle</option></select></label>
+        <label>Resource<select id="drawResource"></select></label>
+        <label>Amount<input type="number" id="drawAmount" value="100" min="0"></label>
+        <label>Show<select id="showResource"></select></label>
+      </div>
+      <canvas id="map" width="1" height="1"></canvas>
+      <p class="hint" id="mapInfo">Drag on the map. A patch adds the amount to every site of the rectangle at tick 0. A shock rectangle creates a <code>shock.scheduled</code> rule you can tune below.</p>
+      <div id="patches"></div>
+    </section>
+    <section>
+      <h2>Rules (run in this order each tick)</h2>
+      <div id="rules"></div>
+      <div class="row">
+        <label>Add rule<select id="catalog"></select></label>
+        <button id="addRule">+ add</button>
+      </div>
+      <p class="hint" id="catalogAbout"></p>
+    </section>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const COLORS = ['#e8b64a', '#4aa8e8', '#9b6be8', '#58c47a', '#e86b8a', '#6be8d9', '#d9e86b', '#e8864a'];
+let cfg = null, catalog = [], drag = null, preview = null;
+
+async function api(path, options) {
+  const response = await fetch(path, options);
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || response.statusText);
+  return body;
+}
+function say(text, cls) { const s = $('status'); s.textContent = text; s.className = cls || 'hint'; }
+const names = () => cfg.world.resources;
+const resOptions = (selected, extra) => (extra || []).concat(names()).map(n => `<option ${n === selected ? 'selected' : ''}>${n}</option>`).join('');
+function num(value) { const n = Number(value); if (!Number.isSafeInteger(n) || n < 0) throw new Error(`"${value}" is not a whole number from 0 to 2^53`); return n; }
+
+async function load() {
+  try {
+    [cfg, catalog] = await Promise.all([api('/config'), api('/catalog')]);
+    renderAll();
+    say('loaded', 'ok');
+  } catch (e) { say('cannot load: ' + e.message, 'err'); }
+}
+
+function renderAll() {
+  $('width').value = cfg.world.width; $('height').value = cfg.world.height;
+  $('wrap').value = String(cfg.world.wrap); $('seed').value = cfg.seed;
+  $('resources').value = names().join(', ');
+  $('entities').value = cfg.init.entities;
+  renderResourcePickers(); renderStocks(); renderGenes(); renderPatches(); renderRules(); renderCatalog(); drawMap();
+}
+function renderResourcePickers() {
+  const keep = [$('drawResource').value, $('showResource').value];
+  $('drawResource').innerHTML = resOptions(keep[0]);
+  $('showResource').innerHTML = resOptions(keep[1]);
+  if (!keep[1]) { // first view: show the resource the world actually starts with
+    const stocks = cfg.init.site_stock, best = stocks.indexOf(Math.max(...stocks));
+    $('showResource').value = names()[Math.max(0, best)];
+  }
+}
+function renderStocks() {
+  $('stocks').innerHTML = '<div class="row">' + names().map((n, i) =>
+    `<label>${n} per site<input type="number" min="0" data-k="site_stock" data-i="${i}" value="${cfg.init.site_stock[i] ?? 0}"></label>` +
+    `<label>${n} per entity<input type="number" min="0" data-k="entity_stock" data-i="${i}" value="${cfg.init.entity_stock[i] ?? 0}"></label>`).join('') + '</div>';
+  $('stocks').querySelectorAll('input').forEach(el => el.onchange = () => { cfg.init[el.dataset.k][+el.dataset.i] = num(el.value); drawMap(); });
+}
+
+// ---- genes -------------------------------------------------------------------
+function renderGenes() {
+  $('genes').innerHTML = cfg.init.genome.map((g, i) => {
+    const two = g.kind === 'convert';
+    return `<div class="card" data-gene="${i}"><div class="row">
+      <label>Kind<select data-f="kind"><option ${g.kind === 'uptake' ? 'selected' : ''}>uptake</option><option ${two ? 'selected' : ''}>convert</option><option ${g.kind === 'secrete' ? 'selected' : ''}>secrete</option></select></label>
+      ${two ? `<label>From<select data-f="from">${resOptions(g.from)}</select></label><label>To<select data-f="to">${resOptions(g.to)}</select></label>`
+            : `<label>Resource<select data-f="resource">${resOptions(g.resource)}</select></label>`}
+      <label>Level<input type="number" min="0" max="65535" data-f="level" value="${g.level}"></label>
+      <label>Gate<select data-f="sense">${resOptions(g.sense, ['always'])}</select></label>
+      <label>Threshold<input type="number" min="0" max="65535" data-f="threshold" value="${g.threshold}"></label>
+      <button class="danger" data-del="${i}">remove</button></div></div>`;
+  }).join('') || '<p class="hint">No genes: founders do nothing.</p>';
+  $('genes').querySelectorAll('[data-gene]').forEach(card => {
+    const i = +card.dataset.gene;
+    card.querySelectorAll('[data-f]').forEach(el => el.onchange = () => {
+      const g = cfg.init.genome[i], f = el.dataset.f;
+      if (f === 'kind') {
+        const old = g.resource || g.from, r0 = names()[0], r1 = names()[1] || names()[0];
+        const base = { level: g.level, sense: g.sense, threshold: g.threshold };
+        cfg.init.genome[i] = el.value === 'convert' ? { kind: 'convert', from: old, to: old === r1 ? r0 : r1, ...base } : { kind: el.value, resource: old, ...base };
+        renderGenes();
+      } else if (f === 'level' || f === 'threshold') { g[f] = num(el.value); }
+      else { g[f] = el.value; if (f === 'sense' && el.value === 'always') { g.threshold = 0; renderGenes(); } }
+    });
+    card.querySelector('[data-del]').onclick = () => { cfg.init.genome.splice(i, 1); renderGenes(); };
+  });
+}
+$('addGene').onclick = () => { cfg.init.genome.push({ kind: 'uptake', resource: names()[0], level: 10, sense: 'always', threshold: 0 }); renderGenes(); };
+
+// ---- patches and map ------------------------------------------------------------
+function renderPatches() {
+  $('patches').innerHTML = cfg.init.patches.map((p, i) =>
+    `<div class="card"><div class="row"><span><span class="swatch" style="background:${COLORS[names().indexOf(p.resource) % 8]}"></span>${p.resource} +${p.amount} at (${p.x},${p.y}) ${p.width}×${p.height}</span>
+     <button class="danger" data-patch="${i}">remove</button></div></div>`).join('');
+  $('patches').querySelectorAll('[data-patch]').forEach(b => b.onclick = () => { cfg.init.patches.splice(+b.dataset.patch, 1); renderPatches(); drawMap(); });
+}
+function siteResource() { return Math.max(0, names().indexOf($('showResource').value)); }
+function drawMap() {
+  const w = cfg.world.width, h = cfg.world.height, c = $('map'), ctx = c.getContext('2d'), r = siteResource();
+  c.width = w; c.height = h;
+  const img = ctx.createImageData(w, h);
+  const base = cfg.init.site_stock[r] || 0, amounts = new Array(w * h).fill(base);
+  cfg.init.patches.filter(p => p.resource === names()[r]).forEach(p => {
+    for (let y = p.y; y < p.y + p.height && y < h; y++) for (let x = p.x; x < p.x + p.width && x < w; x++) amounts[y * w + x] += p.amount;
+  });
+  const max = Math.max(1, ...amounts);
+  const col = COLORS[r % 8], rgb = [1, 3, 5].map(k => parseInt(col.substr(k, 2), 16));
+  amounts.forEach((a, i) => { const t = a / max; for (let k = 0; k < 3; k++) img.data[4 * i + k] = Math.round(25 + (rgb[k] - 25) * t); img.data[4 * i + 3] = 255; });
+  ctx.putImageData(img, 0, 0);
+  // existing shocks as outlines
+  ctx.lineWidth = Math.max(1, w / 300); ctx.strokeStyle = '#ff6b6b';
+  cfg.rules.filter(x => x.id === 'shock.scheduled').forEach(x => { const p = x.params; ctx.strokeRect(p.x + .5, p.y + .5, p.width - 1, p.height - 1); });
+  if (drag) { ctx.strokeStyle = '#ffffff'; const [x, y, ww, hh] = dragRect(); ctx.strokeRect(x + .5, y + .5, Math.max(ww - 1, 0), Math.max(hh - 1, 0)); }
+  $('mapInfo').textContent = `${w}×${h} sites. Showing ${names()[r]}: base ${base} per site, brightest site holds ${max}. Red outlines are shocks.`;
+}
+function cell(e) {
+  const c = $('map'), b = c.getBoundingClientRect();
+  return [Math.min(cfg.world.width - 1, Math.max(0, Math.floor((e.clientX - b.left) / b.width * cfg.world.width))),
+          Math.min(cfg.world.height - 1, Math.max(0, Math.floor((e.clientY - b.top) / b.height * cfg.world.height)))];
+}
+function dragRect() { const x = Math.min(drag.x0, drag.x1), y = Math.min(drag.y0, drag.y1); return [x, y, Math.abs(drag.x1 - drag.x0) + 1, Math.abs(drag.y1 - drag.y0) + 1]; }
+$('map').onpointerdown = e => { const [x, y] = cell(e); drag = { x0: x, y0: y, x1: x, y1: y }; $('map').setPointerCapture(e.pointerId); drawMap(); };
+$('map').onpointermove = e => { if (!drag) return; [drag.x1, drag.y1] = cell(e); drawMap(); };
+$('map').onpointerup = () => {
+  if (!drag) return;
+  const [x, y, width, height] = dragRect(); drag = null;
+  try {
+    if ($('mode').value === 'patch') cfg.init.patches.push({ x, y, width, height, resource: $('drawResource').value, amount: num($('drawAmount').value) });
+    else cfg.rules.push({ id: 'shock.scheduled', version: 1, stream: nextStream(), params: { tick: 1000, action: 'remove', resource: $('drawResource').value, amount: num($('drawAmount').value), x, y, width, height } });
+    renderPatches(); renderRules();
+  } catch (e) { say(e.message, 'err'); }
+  drawMap();
+};
+$('showResource').onchange = drawMap;
+
+// ---- rules ----------------------------------------------------------------------
+function nextStream() { return Math.max(0, ...cfg.rules.map(r => r.stream)) + 1; }
+function renderRules() {
+  $('rules').innerHTML = cfg.rules.map((r, i) =>
+    `<div class="card" data-rule="${i}"><div class="row">
+       <strong style="margin:0 .6rem .5rem 0">${i + 1}. ${r.id}</strong>
+       <label>Version<input type="number" min="1" data-f="version" value="${r.version}"></label>
+       <label>Stream<input type="number" min="1" max="65535" data-f="stream" value="${r.stream}"></label>
+       <button data-up>↑</button><button data-down>↓</button><button class="danger" data-del>remove</button></div>
+       <textarea spellcheck="false" data-f="params">${JSON.stringify(r.params, null, 1).replace(/\n\s*/g, ' ')}</textarea></div>`).join('')
+    || '<p class="hint">No rules: nothing happens. Add one below.</p>';
+  $('rules').querySelectorAll('[data-rule]').forEach(card => {
+    const i = +card.dataset.rule;
+    card.querySelectorAll('[data-f]').forEach(el => el.onchange = () => {
+      try {
+        if (el.dataset.f === 'params') { cfg.rules[i].params = JSON.parse(el.value); card.classList.remove('bad'); drawMap(); }
+        else cfg.rules[i][el.dataset.f] = num(el.value);
+      } catch (e) { card.classList.add('bad'); say(`rule ${i + 1}: ${e.message}`, 'err'); }
+    });
+    card.querySelector('[data-up]').onclick = () => { if (i > 0) { [cfg.rules[i - 1], cfg.rules[i]] = [cfg.rules[i], cfg.rules[i - 1]]; renderRules(); } };
+    card.querySelector('[data-down]').onclick = () => { if (i < cfg.rules.length - 1) { [cfg.rules[i + 1], cfg.rules[i]] = [cfg.rules[i], cfg.rules[i + 1]]; renderRules(); } };
+    card.querySelector('[data-del]').onclick = () => { cfg.rules.splice(i, 1); renderRules(); drawMap(); };
+  });
+}
+function renderCatalog() {
+  $('catalog').innerHTML = catalog.map(c => `<option value="${c.id}">${c.id}</option>`).join('');
+  const show = () => { const c = catalog.find(x => x.id === $('catalog').value); $('catalogAbout').textContent = c ? c.about : ''; };
+  $('catalog').onchange = show; show();
+}
+$('addRule').onclick = () => {
+  const c = catalog.find(x => x.id === $('catalog').value), n = names();
+  const params = JSON.parse(JSON.stringify(c.params), (k, v) => typeof v === 'string' && /^\$R[0-2]$/.test(v) ? n[Math.min(+v[2], n.length - 1)] : v);
+  cfg.rules.push({ id: c.id, version: 1, stream: nextStream(), params });
+  renderRules(); drawMap();
+};
+
+// ---- world fields and save -----------------------------------------------------------
+function readFields() {
+  cfg.world.width = num($('width').value); cfg.world.height = num($('height').value);
+  cfg.world.wrap = $('wrap').value === 'true'; cfg.seed = $('seed').value.trim();
+  cfg.init.entities = num($('entities').value);
+}
+['width', 'height', 'wrap', 'seed', 'entities'].forEach(id => $(id).onchange = () => { try { readFields(); drawMap(); } catch (e) { say(e.message, 'err'); } });
+$('resources').onchange = () => {
+  const list = $('resources').value.split(',').map(s => s.trim()).filter(Boolean);
+  cfg.world.resources = list;
+  ['site_stock', 'entity_stock'].forEach(k => { cfg.init[k] = list.map((_, i) => cfg.init[k][i] ?? 0); });
+  renderAll();
+};
+$('save').onclick = async () => {
+  try {
+    readFields();
+    const result = await api('/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cfg) });
+    say(`saved to ${result.saved} (previous file kept as ${result.backup}). Run it with: lab run ${result.saved} …`, 'ok');
+  } catch (e) { say('not saved: ' + e.message, 'err'); }
+};
+$('reload').onclick = load;
+load();
+</script>
+</body>
+</html>

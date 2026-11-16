@@ -1,4 +1,5 @@
 //! `lab`: command-line front end of the evolutionary laboratory.
+mod edit;
 mod run;
 mod view;
 
@@ -72,6 +73,12 @@ enum Command {
         #[arg(long)]
         start_paused: bool,
     },
+    /// Open the visual world editor for a config file (127.0.0.1 only).
+    Edit {
+        config: PathBuf,
+        #[arg(long)]
+        port: u16,
+    },
     /// Print the tick and state hash of a checkpoint.
     Hash { checkpoint: PathBuf },
     /// Write one CSV row per entity of a checkpoint (identity, lineage, stocks, genome).
@@ -99,6 +106,7 @@ fn dispatch(cli: Cli) -> Result<(), LabError> {
             let options = view::ViewOptions { ticks, out: &out, checkpoint_every, series_every, port, linger_seconds, start_paused };
             view::view(&mut session, &options)?;
         }
+        Command::Edit { config, port } => edit::edit(&config, port)?,
         Command::Dump { checkpoint, out } => {
             let rows = dump_entities(&checkpoint, &out)?;
             println!("wrote {rows} entities to {}", out.display());

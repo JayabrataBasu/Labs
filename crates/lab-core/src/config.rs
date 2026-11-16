@@ -1,13 +1,13 @@
 //! The declarative run configuration. Every field is required: there are no silent defaults.
 use crate::{EntityMeta, Gene, GeneKind, LabError, State, Topology, SENSE_ALWAYS};
 use lab_rng::{below, RuleRng, STREAM_INIT};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub const SCHEMA_VERSION: u32 = 1;
 pub const MAX_RESOURCES: usize = 16;
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub schema_version: u32,
@@ -17,7 +17,7 @@ pub struct Config {
     pub rules: Vec<RuleCfg>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorldCfg {
     pub width: u32,
@@ -27,7 +27,7 @@ pub struct WorldCfg {
     pub resources: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct InitCfg {
     /// Initial stock of each resource at every site.
@@ -42,7 +42,7 @@ pub struct InitCfg {
 }
 
 /// Adds `amount` of `resource` to every site of a rectangle that lies inside the lattice.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PatchCfg {
     pub x: u32,
@@ -54,7 +54,7 @@ pub struct PatchCfg {
 }
 
 /// A gene as written in a config. `sense` is a resource name or `"always"` (then `threshold` must be 0).
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 pub enum GeneCfg {
     Uptake { resource: String, level: u16, sense: String, threshold: u16 },
@@ -94,7 +94,7 @@ pub fn resolve_genome(genes: &[GeneCfg], resources: &[String]) -> Result<Vec<Gen
         .collect()
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RuleCfg {
     pub id: String,
