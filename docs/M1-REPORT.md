@@ -70,7 +70,8 @@ on the order of a day, not the 6 hours estimated in M0. Usable for M2; a real co
 ## 4. Not verified [U]
 
 - **Cross-platform replay.** The CI workflow (`.github/workflows/replay.yml`: Linux, macOS arm64, Windows) is
-  written but has never run; it needs a push. Until it passes, "reproducible on another system" is a design claim only.
+  written but had not run when this report was written. **Update:** run 43915903083 passed on all three with hash
+  `8729cb30…329191` at 1 and 4 threads, including the LF line-ending handling; the M2 pins are in M2-M3-REPORT.
 - Line endings: the config hash covers the exact bytes of the config file, so `.gitattributes` forces LF. Whether
   that is sufficient on the Windows runner is part of the CI check.
 - The viewer was checked in headless Chromium only, not by a person and not in Firefox.
