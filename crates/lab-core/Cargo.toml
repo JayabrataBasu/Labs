@@ -1,0 +1,9 @@
+[package]
+name = "lab-core"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+lab-rng = { path = "../lab-rng" }
+sha2 = "0.10"
