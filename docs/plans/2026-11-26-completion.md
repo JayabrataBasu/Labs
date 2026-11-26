@@ -93,7 +93,7 @@ A → B → C → D (starts) → F (studio core) → E → F (finish) → D repo
 ## Progress (update as work lands)
 - [x] Phase A: world mechanisms (leak, release_to, requirements, founders, three new worlds)
 - [x] Phase B: observer, counterfactual
-- [ ] Phase C: analysis and construct-check gate
+- [x] Phase C: analysis and construct-check gate
 - [ ] Phase D: benchmark, exploration, N3 calibration, literature, registered RQ1, report
 - [ ] Phase E: containment
 - [ ] Phase F: studio, HTML report, README, ODD, binaries
@@ -103,3 +103,4 @@ A → B → C → D (starts) → F (studio core) → E → F (finish) → D repo
 - A: first Black Queen parameters starved every population (yield 1/2); yield is now 3/4. Untuned.
 - A: the first positive control collapsed because specialists also took their own product back; each now lacks uptake of what it makes.
 - A (exploratory observation, seed 1, one run): in blackqueen.toml lineages that dropped a leaky step are common by tick 6000. Not evidence until compared with nulls over seeds.
+- C: construct gate failed the group detectors (see docs/experiments/CONSTRUCT-CHECK.md). Replaced by an exact spatial-assortment measure; RQ1 H2 is about partner association, not detected coalitions.

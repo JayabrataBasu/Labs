@@ -252,6 +252,60 @@ transforms = [{ name = "null.no_secretion" }, { name = "null.no_recycling" }]
         self.assertGreater(max(site_b("intact")), 0, "the intact world does put B on sites")
 
 
+@unittest.skipUnless(LAB.exists(), "needs `cargo build --release`")
+class ObservedExperiment(unittest.TestCase):
+    def test_observed_runs_are_analysed_summarised_and_cleaned_up(self):
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        cfg = tomllib.loads((ROOT / "configs" / "positive-control.toml").read_text())
+        cfg["world"]["width"] = cfg["world"]["height"] = 12
+        for founder in cfg["init"]["founders"]:
+            founder["count"] = 94
+        (d / "base.toml").write_text(toml_out.dumps(cfg))
+        (d / "spec.toml").write_text('''name = "obs"
+base_config = "base.toml"
+ticks = 200
+series_every = 100
+threads = 1
+seeds = [1, 2]
+primary_outcome = "dependent_fraction"
+aim = "test"
+estimand = "test"
+analysis_plan = "test"
+[observe]
+window = 20
+count = 3
+flux_radius = 1
+contact_radius = 0
+min_share = 0.05
+min_fraction = 0.05
+permutations = 5
+shuffle_seed = 1
+counterfactual_pairs = 3
+counterfactual_ticks = 60
+keep_raw = false
+[[arms]]
+name = "intact"
+transforms = []
+''')
+        os.environ["LAB_BIN"] = str(LAB)
+        self.addCleanup(os.environ.pop, "LAB_BIN", None)
+        root = runner.run_experiment(d / "spec.toml", d / "out", 2, exploratory=True)
+        rows = analysis.load_summary(root)
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            self.assertEqual(float(row["dependent_fraction"]), 1.0)
+            self.assertEqual(float(row["complementary"]), 1.0)
+            self.assertGreater(float(row["cross_supply_share"]), 0.3)
+            self.assertGreater(int(float(row["pairs_tested"])), 0)
+            self.assertEqual(int(float(row["windows"])), 3)
+        run_dir = root / "intact" / "base" / "seed-1"
+        self.assertTrue((run_dir / "metrics.json").exists() and (run_dir / "windows.csv").exists())
+        self.assertFalse((run_dir / "obs").exists(), "raw observations are removed unless asked for")
+        again = analysis.load_summary(runner.run_experiment(d / "spec.toml", d / "out2", 1, exploratory=True))
+        self.assertEqual(rows, again, "the analysis is deterministic")
+
+
 def by_arm_hash(rows, arm):
     return [r["final_sha256"] for r in rows if r["arm"] == arm and r["seed"] == "1001"][0]
 

@@ -15,6 +15,19 @@ design and the analysis plan cannot change after outcomes have been seen without
     estimand = "the quantity compared, e.g. median final population per arm"   # ADEMP: Estimand
     analysis_plan = "methods and performance measures: what is compared and how"   # ADEMP: Methods, Performance
 
+    [observe]                                    # optional: observe the last `count` windows and analyse them
+    window = 20
+    count = 10
+    flux_radius = 1                              # reach of the who-fed-whom estimator
+    contact_radius = 0                           # reach for partner association (0 = same site)
+    min_share = 0.05                             # a material supplier gives at least this share of a taker's intake
+    min_fraction = 0.05                          # a dependency class "exists" above this population share
+    permutations = 40                            # shuffles for the chance expectation
+    shuffle_seed = 1
+    counterfactual_pairs = 0                     # partner pairs to fork (0 = skip)
+    counterfactual_ticks = 200
+    keep_raw = false                             # keep the raw observation files (large)
+
     [[arms]]
     name = "intact"
     transforms = []
@@ -36,6 +49,8 @@ from pathlib import Path
 
 from . import toml_out, transforms
 
+OBSERVE_FIELDS = ["window", "count", "flux_radius", "contact_radius", "min_share", "min_fraction", "permutations",
+                  "shuffle_seed", "counterfactual_pairs", "counterfactual_ticks", "keep_raw"]
 REQUIRED = ["name", "base_config", "ticks", "series_every", "threads", "seeds", "primary_outcome", "aim", "estimand", "analysis_plan", "arms"]
 
 # Seed firewall (DR-019). Seeds below this are for exploration and tuning; a registered (frozen)
@@ -60,6 +75,13 @@ def load(spec_path):
     if len(set(names)) != len(names):
         raise ValueError("arm names must be unique")
     base_path = (spec_path.parent / spec["base_config"]).resolve()
+    if "observe" in spec:
+        missing = [k for k in OBSERVE_FIELDS if k not in spec["observe"]]
+        extra = [k for k in spec["observe"] if k not in OBSERVE_FIELDS]
+        if missing or extra:
+            raise ValueError(f"[observe] lacks {missing} and has unknown {extra} (there are no defaults)")
+        if spec["observe"]["window"] * spec["observe"]["count"] > spec["ticks"]:
+            raise ValueError("[observe] window x count exceeds ticks")
     return spec, text, base_path
 
 

@@ -13,8 +13,11 @@ def load_summary(root):
 def distributions(rows, metric):
     """{(arm, point): [values over seeds]} for one numeric column."""
     groups = defaultdict(list)
+    if rows and metric not in rows[0]:
+        raise ValueError(f"no column {metric!r}; available: {sorted(rows[0])}")
     for row in rows:
-        groups[(row["arm"], row["point"])].append(float(row[metric]))
+        if row[metric] != "":  # a measure that does not exist for a run (e.g. no dependants) is skipped
+            groups[(row["arm"], row["point"])].append(float(row[metric]))
     return groups
 
 
