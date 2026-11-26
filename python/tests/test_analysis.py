@@ -144,6 +144,12 @@ class Flux(unittest.TestCase):
         wrapped = flux.attribute([data.Flow(1, 0, B, 0, 9, 0), data.Flow(2, 4, B, 9, 0, 0)], 5, 1, True, [B], 1)
         self.assertAlmostEqual(wrapped[(1, 2)], 3.0, msg="on a ring site 0 reaches sites 4, 0 and 1")
 
+    def test_the_size_of_the_flow_graph_is_known_before_it_is_built(self):
+        # Site 0: donors 1 and 2, takers 3 and 4 -> 4 donor-taker records; site 1 has a taker and no donor.
+        flows = [data.Flow(1, 0, B, 0, 6, 0), data.Flow(2, 0, B, 0, 2, 0), data.Flow(3, 0, B, 4, 0, 0),
+                 data.Flow(4, 0, B, 4, 0, 0), data.Flow(5, 1, B, 4, 0, 0)]
+        self.assertEqual(flux.pair_count(flows, 3, 1, False, [B], 0), 4)
+
     def test_self_supply_is_reported_separately(self):
         flows = [data.Flow(1, 0, B, 4, 4, 0)]
         edges = flux.attribute(flows, 1, 1, False, [B], 0)
@@ -182,6 +188,33 @@ class Groups(unittest.TestCase):
         alive = {1, 2, 3, 4}
         self.assertEqual(groups.retention(earlier, later, alive), (1, 2))
         self.assertEqual(groups.retention(earlier, later, {1, 2}), (1, 1), "pairs with a dead member do not count")
+
+
+class FlowGraphLimit(unittest.TestCase):
+    def window(self):
+        entities = {1: data.Entity(1, 0, None, 0, (0,) * 5, tuple(genome(NEEDS_B))),
+                    2: data.Entity(2, 0, None, 0, (0,) * 5, tuple(genome(NEEDS_C)))}
+        flows = [data.Flow(1, 0, C, 0, 5, 0), data.Flow(2, 0, C, 5, 0, 0), data.Flow(2, 0, B, 0, 5, 0), data.Flow(1, 0, B, 5, 0, 0)]
+        return data.Window(0, 20, 1, 1, False, ["E", "F", "A", "B", "C"], entities, entities, flows, [], [])
+
+    def analyse(self, limit):
+        settings = {"flux_radius": 0, "contact_radius": 0, "min_share": 0.05, "min_fraction": 0.05, "permutations": 3,
+                    "shuffle_seed": 1, "max_flux_pairs": limit}
+        return metrics.analyse_window(self.window(), CHEM, [B, C], settings)
+
+    def test_above_the_limit_only_the_measures_that_need_the_flow_graph_are_missing(self):
+        full, pairs, _, _ = self.analyse(1000)
+        self.assertEqual((full["flux_skipped"], full["mutual_pairs"], pairs != {}), (0, 1, True))
+        self.assertAlmostEqual(full["cross_supply_share"], 1.0)
+        skipped, pairs, group_sets, _ = self.analyse(1)
+        self.assertEqual((skipped["flux_skipped"], pairs, group_sets), (1, None, []))
+        for key in ("cross_supply_share", "mutual_pairs", "mutual_fraction", "mutual_fraction_n4", "groups_d1", "groups_d2",
+                    "largest_group_d1", "mean_group_size_d2", "detector_agreement", "encapsulation", "specialization",
+                    "price_between", "price_within"):
+            self.assertIsNone(skipped[key], key)
+        for key in ("population", "complementary", "dependent_fraction", "reciprocal_excess", "price_selection"):
+            self.assertEqual(skipped[key], full[key], key)
+        self.assertEqual(set(skipped), set(full))
 
 
 class Metrics(unittest.TestCase):

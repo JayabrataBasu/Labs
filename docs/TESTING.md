@@ -50,6 +50,7 @@ rules; several first drafts passed regardless of the behaviour and were rewritte
 | The dependence measure was zero by construction in one world; a never-consumed resource piled up | Inspecting final genomes of exploratory runs (DR-024) |
 | Command-line report rounded fractions to zero; an experiment spec had been committed empty | Following the README; loading every spec |
 | Studio charts could stop short of the last tick; the page stayed blank until a first request returned | Browser check in Firefox |
+| Analysis of well-mixed worlds ran the machine out of memory | The exploratory sweep itself |
 
 ## Instrument verification
 

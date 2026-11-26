@@ -23,6 +23,7 @@ permutations = 20
 shuffle_seed = 1
 counterfactual_pairs = 0
 counterfactual_ticks = 100
+max_flux_pairs = 2000000
 keep_raw = false
 
 [[arms]]

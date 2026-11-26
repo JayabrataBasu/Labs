@@ -9,6 +9,9 @@ import statistics
 
 from . import assortment, capability, data, flux, groups, price
 
+FLOW_KEYS = ("cross_supply_share", "mutual_pairs", "mutual_fraction", "mutual_fraction_n4", "groups_d1", "largest_group_d1",
+             "groups_d2", "mean_group_size_d2", "detector_agreement", "encapsulation", "specialization")
+
 
 def encapsulation(group, edges):
     """Share of the exchange flux touching the group that stays inside it. Self-supply excluded."""
@@ -136,46 +139,57 @@ def host_composition(entities, chemistry):
     }
 
 
-def analyse_window(window, chemistry, resources, settings):
-    """All per-window measures. `settings` has flux_radius, contact_radius, min_share, min_fraction,
-    permutations and shuffle_seed."""
-    radius, min_share = settings["flux_radius"], settings["min_share"]
+def flow_measures(window, resources, settings):
+    """The measures that need the who-fed-whom graph. Returns (measures, mutual pairs, D2 groups).
+    Above `max_flux_pairs` donor-taker records (observed or shuffled) the graph is not built: every
+    measure is missing, the pairs are None and `flux_skipped` is 1."""
+    radius, min_share, limit = settings["flux_radius"], settings["min_share"], settings["max_flux_pairs"]
+    shuffled = shuffle_profiles(window.flows, random.Random(settings["shuffle_seed"] + window.start))
+    if any(flux.pair_count(f, window.width, window.height, window.wrap, resources, radius) > limit for f in (window.flows, shuffled)):
+        return {"flux_skipped": 1, **dict.fromkeys(FLOW_KEYS)}, None, []
     edges = flux.attribute(window.flows, window.width, window.height, window.wrap, resources, radius)
     intake = flux.intake(window.flows, set(resources))
     pairs = groups.mutual_pairs(edges, intake, min_share)
     d1 = groups.components(pairs)
     d2 = groups.label_propagation(pairs)
-    shuffled = shuffle_profiles(window.flows, random.Random(settings["shuffle_seed"] + window.start))
     null_edges = flux.attribute(shuffled, window.width, window.height, window.wrap, resources, radius)
     null_pairs = groups.mutual_pairs(null_edges, flux.intake(shuffled, set(resources)), min_share)
-
-    n = len(window.entities_end)
     active = {f.entity for f in window.flows}
     grouped = set().union(*d1) if d1 else set()
     cross = sum(v for (i, j), v in edges.items() if i != j)
     total_intake = sum(intake.values())
-    out = {"population": n}
+    values = (
+        cross / total_intake if total_intake else 0.0,
+        len(pairs),
+        len(grouped) / len(active) if active else 0.0,
+        len(set().union(*groups.components(null_pairs)) if null_pairs else ()) / len(active) if active else 0.0,
+        len(d1),
+        max(map(len, d1), default=0),
+        len(d2),
+        _mean([len(g) for g in d2]) or 0.0,
+        groups.agreement(d1, d2),
+        _mean(encapsulations(d2, edges)),
+        _mean([specialization(t) for t in profiles_for(d2, window.flows, resources)]),
+    )
+    return {"flux_skipped": 0, **dict(zip(FLOW_KEYS, values))}, pairs, d2
+
+
+def analyse_window(window, chemistry, resources, settings):
+    """All per-window measures. `settings` has flux_radius, contact_radius, min_share, min_fraction,
+    permutations, shuffle_seed and max_flux_pairs."""
+    radius = settings["flux_radius"]
+    flow, pairs, d2 = flow_measures(window, resources, settings)
+    out = {"population": len(window.entities_end)}
     out.update(capability.summary([e.genome for e in window.entities_end.values()], chemistry, settings["min_fraction"]))
-    out.update({
-        "cross_supply_share": cross / total_intake if total_intake else 0.0,
-        "mutual_pairs": len(pairs),
-        "mutual_fraction": len(grouped) / len(active) if active else 0.0,
-        "mutual_fraction_n4": len(set().union(*groups.components(null_pairs)) if null_pairs else ()) / len(active) if active else 0.0,
-        "groups_d1": len(d1),
-        "largest_group_d1": max(map(len, d1), default=0),
-        "groups_d2": len(d2),
-        "mean_group_size_d2": _mean([len(g) for g in d2]) or 0.0,
-        "detector_agreement": groups.agreement(d1, d2),
-        "encapsulation": _mean(encapsulations(d2, edges)),
-        "specialization": _mean([specialization(t) for t in profiles_for(d2, window.flows, resources)]),
-    })
+    out.update(flow)
     out.update(assortment.measure(list(window.entities_end.values()), chemistry, window.width, window.height, window.wrap,
                                   settings["contact_radius"], settings["permutations"], settings["shuffle_seed"] + window.start))
     # Price: trait = number of leaked products an individual depends on.
     deps = {i: capability.leaked_dependencies(e.genome, chemistry) for i, e in window.entities_start.items()}
     parts = price.partition(price.window_fitness(window), {i: float(len(d)) for i, d in deps.items()}, d2)
-    for key in ("selection", "between", "within"):
-        out[f"price_{key}"] = parts[key] if parts else None
+    out["price_selection"] = parts["selection"] if parts else None
+    for key in ("between", "within"):
+        out[f"price_{key}"] = parts[key] if parts and pairs is not None else None
     out.update(host_composition(window.entities_end, chemistry))
     split = price.between_share(price.window_fitness(window), host_units(window.entities_start))
     out["host_fitness_between"] = split["share"] if split else None
@@ -194,7 +208,7 @@ def analyse_run(run_dir, config, settings):
     for directory in data.windows(run_dir):
         window = data.read_window(directory)
         row, pairs, _, potential = analyse_window(window, chemistry, resources, settings)
-        if previous is not None:
+        if previous is not None and pairs is not None and previous[0] is not None:
             alive = set(window.entities_end)
             old_pairs, old_potential = previous
             for total, (earlier, later) in zip((kept, base), ((old_pairs, pairs), (old_potential, pairs))):

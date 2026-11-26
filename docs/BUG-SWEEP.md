@@ -65,13 +65,16 @@ challenging:
 - Arm and sweep names could place results outside the results folder.
 - A report test used a folder name Windows forbids. Found by CI.
 - Studio charts could stop short of the last tick (redraw throttle dropped the final draw). Found in Firefox.
+- Analysing a well-mixed world needed over 9 GB per run (43.5 million donor-taker pairs in one window);
+  the out-of-memory killer ended a sweep. `max_flux_pairs` now bounds it. Found by running the sweep.
 
 ## Known gaps
 
 - An experiment started in the studio keeps running if the studio is closed.
 - An interrupted experiment cannot resume; rerun it (results are deterministic).
 - A run that fails analysis fails the whole experiment after all runs finish.
-- Large analyses hold a whole observation window in memory.
+- Large analyses hold a whole observation window in memory. If a worker process dies, the runner
+  reports only `BrokenProcessPool`, and finished runs are not collected.
 - Studio map shows metabolic types and hosts, not detected groups (they failed their check).
 - Not tested: Safari, macOS and Windows browsers, small screens, screen readers. No automated browser tests.
 - Not tested: worlds far larger than 512 × 512 or genomes near the 4096-gene limit.

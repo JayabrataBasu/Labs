@@ -334,6 +334,7 @@ permutations = 5
 shuffle_seed = 1
 counterfactual_pairs = 3
 counterfactual_ticks = 60
+max_flux_pairs = 1000000
 keep_raw = false
 [[arms]]
 name = "intact"

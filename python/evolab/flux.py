@@ -7,6 +7,9 @@ the local pool in proportion to what each put there. At every site the attribute
 min(pool, takes), so no donor is credited with more than it released and no taker with more than
 it took. It is an ESTIMATE: diffusion over longer distances, decay and timing within the window
 are ignored.
+
+The result holds one entry per donor-taker pair, which in well-mixed worlds grows to hundreds of
+millions. `pair_count` bounds that size beforehand, so a caller can refuse to build it.
 """
 from collections import defaultdict
 
@@ -25,8 +28,7 @@ def neighbourhood(site, width, height, wrap, radius):
     return sorted(found)
 
 
-def attribute(flows, width, height, wrap, resources, radius):
-    """{(donor, taker): amount} over the given exchange resources. Donor == taker is self-supply."""
+def _pools(flows, width, height, wrap, resources, radius):
     wanted = set(resources)
     pool = defaultdict(lambda: defaultdict(float))  # (site, resource) -> donor -> amount
     takes = defaultdict(list)  # (site, resource) -> [(taker, amount)]
@@ -42,6 +44,18 @@ def attribute(flows, width, height, wrap, resources, radius):
                 pool[(u, f.resource)][f.entity] += share
         if f.taken:
             takes[(f.site, f.resource)].append((f.entity, f.taken))
+    return pool, takes
+
+
+def pair_count(flows, width, height, wrap, resources, radius):
+    """Donor-taker records `attribute` would visit: an upper bound on the entries it would return."""
+    pool, takes = _pools(flows, width, height, wrap, resources, radius)
+    return sum(len(takers) * len(pool.get(key, ())) for key, takers in takes.items())
+
+
+def attribute(flows, width, height, wrap, resources, radius):
+    """{(donor, taker): amount} over the given exchange resources. Donor == taker is self-supply."""
+    pool, takes = _pools(flows, width, height, wrap, resources, radius)
     edges = defaultdict(float)
     for key, takers in takes.items():
         donors = pool.get(key)

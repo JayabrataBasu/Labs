@@ -26,6 +26,7 @@ design and the analysis plan cannot change after outcomes have been seen without
     shuffle_seed = 1
     counterfactual_pairs = 0                     # partner pairs to fork (0 = skip)
     counterfactual_ticks = 200
+    max_flux_pairs = 2000000                     # above this the who-fed-whom measures are left missing (0 = never build)
     keep_raw = false                             # keep the raw observation files (large)
 
     [[arms]]
@@ -58,7 +59,7 @@ from pathlib import Path
 from . import registered, toml_out, transforms
 
 OBSERVE_FIELDS = ["window", "count", "flux_radius", "contact_radius", "min_share", "min_fraction", "permutations",
-                  "shuffle_seed", "counterfactual_pairs", "counterfactual_ticks", "keep_raw"]
+                  "shuffle_seed", "counterfactual_pairs", "counterfactual_ticks", "max_flux_pairs", "keep_raw"]
 REQUIRED = ["name", "base_config", "ticks", "series_every", "threads", "seeds", "primary_outcome", "aim", "estimand", "analysis_plan", "arms"]
 
 # Seed firewall (DR-019). Seeds below this are for exploration and tuning; a registered (frozen)
