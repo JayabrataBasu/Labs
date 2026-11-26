@@ -3,8 +3,8 @@ use lab_core::{Engine, EntityMeta, LabError, State, Topology};
 
 fn header(w: u32, h: u32, wrap: bool, site: u64, entities: u64, ent: u64) -> String {
     format!(
-        "schema_version = 1\nseed = 11\n[world]\nwidth = {w}\nheight = {h}\nwrap = {wrap}\nresources = [\"A\"]\n\
-         [init]\nsite_stock = [{site}]\npatches = []\nentities = {entities}\nentity_stock = [{ent}]\ngenome = []\n"
+        "schema_version = 2\nseed = 11\n[world]\nwidth = {w}\nheight = {h}\nwrap = {wrap}\nresources = [\"A\"]\n\
+         [init]\nsite_stock = [{site}]\npatches = []\nfounders = [{{ count = {entities}, stock = [{ent}], genome = [] }}]\n"
     )
 }
 fn rule(id: &str, stream: u16, params: &str) -> String {
@@ -147,10 +147,10 @@ fn parse_rejects_bad_values() {
     let base = header(3, 3, false, 0, 0, 0);
     let influx = |stream| rule("influx.constant", stream, "resource = \"A\", amount = 1, every = 1");
     let cases: Vec<(&str, String)> = vec![
-        ("schema_version", base.replace("schema_version = 1", "schema_version = 2") + &influx(1)),
+        ("schema_version", base.replace("schema_version = 2", "schema_version = 3") + &influx(1)),
         ("resource", base.replace("[\"A\"]", "[\"A\", \"A\"]").replace("[0]", "[0, 0]") + &influx(1)),
         ("site_stock", base.replace("site_stock = [0]", "site_stock = [0, 0]") + &influx(1)),
-        ("entity_stock", base.replace("entity_stock = [0]", "entity_stock = []") + &influx(1)),
+        ("stock", base.replace("stock = [0], genome", "stock = [], genome") + &influx(1)),
         ("stream", base.clone() + &influx(1) + &influx(1)),
         ("stream", base.clone() + &influx(0)),
         ("no.such.rule", base.clone() + &rule("no.such.rule", 1, "")),

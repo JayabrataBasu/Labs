@@ -10,19 +10,27 @@ const NO_MUTATION: &str = "mutation = { point_ppm = 0, point_magnitude = 0, reta
 /// A 1x1 (or given) world with resources E, A, B and S; `genome` and `rules` are TOML fragments.
 fn world(size: (u32, u32), site: [u64; 4], entities: u64, ent: [u64; 4], genome: &str, rules: &str) -> String {
     format!(
-        "schema_version = 1\nseed = 5\n[world]\nwidth = {}\nheight = {}\nwrap = false\nresources = [\"E\", \"A\", \"B\", \"S\"]\n\
-         [init]\nsite_stock = {site:?}\npatches = []\nentities = {entities}\nentity_stock = {ent:?}\ngenome = [{genome}]\n{rules}",
+        "schema_version = 2\nseed = 5\n[world]\nwidth = {}\nheight = {}\nwrap = false\nresources = [\"E\", \"A\", \"B\", \"S\"]\n\
+         [init]\nsite_stock = {site:?}\npatches = []\nfounders = [{{ count = {entities}, stock = {ent:?}, genome = [{genome}] }}]\n{rules}",
         size.0, size.1
     )
 }
 fn rule(id: &str, stream: u16, params: &str) -> String {
-    format!("[[rules]]\nid = \"{id}\"\nversion = 1\nstream = {stream}\nparams = {{ {params} }}\n")
+    let version = if id == "metabolism.genes" || id == "reproduction.division" { 2 } else { 1 };
+    format!("[[rules]]\nid = \"{id}\"\nversion = {version}\nstream = {stream}\nparams = {{ {params} }}\n")
 }
 fn gene(kind: &str, fields: &str, level: u16, sense: &str, threshold: u16) -> String {
     format!("{{ kind = \"{kind}\", {fields}, level = {level}, sense = \"{sense}\", threshold = {threshold} }}")
 }
-fn metabolism(base: u64, per_gene: u64, secretion: bool) -> String {
-    rule("metabolism.genes", 1, &format!("energy = \"E\", base_cost = {base}, gene_cost = {per_gene}, yield_num = 1, yield_den = 2, reactions = [[\"A\", \"B\"], [\"B\", \"E\"]], secretion = {secretion}"))
+fn reaction(from: &str, to: &str, leak_ppm: u32) -> String {
+    format!("{{ from = \"{from}\", to = \"{to}\", leak_ppm = {leak_ppm} }}")
+}
+fn chemistry(base: u64, per_gene: u64, yield_den: u32, leak_ppm: u32, release_to: &str) -> String {
+    let reactions = [reaction("A", "B", leak_ppm), reaction("B", "E", 0)].join(", ");
+    rule("metabolism.genes", 1, &format!("energy = \"E\", base_cost = {base}, gene_cost = {per_gene}, yield_num = 1, yield_den = {yield_den}, reactions = [{reactions}], release_to = \"{release_to}\""))
+}
+fn metabolism(base: u64, per_gene: u64, transfer: bool) -> String {
+    chemistry(base, per_gene, 2, 0, if transfer { "site" } else { "sink" })
 }
 fn run(text: &str, ticks: u32, threads: usize) -> State {
     let (cfg, _) = parse(text).unwrap_or_else(|e| panic!("{e}\n{text}"));
@@ -70,11 +78,45 @@ fn genes_act_in_order_within_one_tick_and_cost_energy() {
 }
 
 #[test]
-fn secretion_switch_is_the_no_interaction_null() {
+fn releasing_to_the_sink_removes_transfer_but_keeps_the_producers_budget() {
     let genome = gene("secrete", "resource = \"B\"", 2, "always", 0);
-    let s = run(&world((1, 1), [0; 4], 1, [9, 0, 5, 0], &genome, &metabolism(0, 1, false)), 1, 1);
-    assert_eq!(s.site_stock, vec![0; 4], "nothing reaches the site");
-    assert_eq!(s.ent_stock, vec![8, 0, 5, 0], "but the silent gene is still paid for");
+    let intact = run(&world((1, 1), [0; 4], 1, [9, 0, 5, 0], &genome, &metabolism(0, 1, true)), 1, 1);
+    let null = run(&world((1, 1), [0; 4], 1, [9, 0, 5, 0], &genome, &metabolism(0, 1, false)), 1, 1);
+    assert_eq!(intact.ent_stock, null.ent_stock, "the secretor pays and loses exactly the same");
+    assert_eq!((intact.site_stock[2], null.site_stock[2]), (2, 0), "only the intact world lets others have it");
+    assert_eq!(null.ledger.dissipated, vec![1, 0, 2, 0]);
+}
+
+#[test]
+fn leaky_reactions_release_an_exact_share_of_the_product() {
+    let genome = gene("convert", "from = \"A\", to = \"B\"", 100, "always", 0);
+    let start = |release: &str| run(&world((1, 1), [0; 4], 1, [0, 100, 0, 0], &genome, &chemistry(0, 0, 1, 250_000, release)), 1, 1);
+    let intact = start("site");
+    assert_eq!((intact.ent_stock[2], intact.site_stock[2]), (75, 25), "a quarter of the 100 produced leaks out");
+    assert_eq!(intact.ledger.converted_in[2], 100, "the ledger records everything produced");
+    let null = start("sink");
+    assert_eq!((null.ent_stock[2], null.site_stock[2], null.ledger.dissipated[2]), (75, 0, 25));
+}
+
+#[test]
+fn fractional_leaks_are_rounded_by_chance_without_bias() {
+    // Each of 400 entities produces 50; a quarter of 50 is 12.5, so each leaks 12 or 13.
+    let genome = gene("convert", "from = \"A\", to = \"B\"", 50, "always", 0);
+    let s = run(&world((1, 1), [0; 4], 400, [0, 50, 0, 0], &genome, &chemistry(0, 0, 1, 250_000, "site")), 1, 1);
+    let leaked: Vec<u64> = (0..400).map(|i| 50 - s.ent_stock[i * 4 + 2]).collect();
+    assert!(leaked.iter().all(|&x| x == 12 || x == 13), "{leaked:?}");
+    let total: u64 = leaked.iter().sum();
+    assert_eq!(total, s.site_stock[2]);
+    assert!((4900..=5100).contains(&total), "mean leak should be near 12.5, total {total}");
+    let t = run(&world((1, 1), [0; 4], 400, [0, 50, 0, 0], &genome, &chemistry(0, 0, 1, 250_000, "site")), 1, 4);
+    assert_eq!(s, t, "rounding draws do not depend on threads");
+}
+
+#[test]
+fn reaction_and_release_settings_are_validated() {
+    let bad = |rules: String| parse(&world((1, 1), [0; 4], 0, [0; 4], "", &rules)).and_then(|(c, _)| lab_rules::build(&c).map(|_| ())).unwrap_err().to_string();
+    assert!(bad(chemistry(0, 0, 1, 1_000_001, "site")).contains("leak_ppm"));
+    assert!(bad(chemistry(0, 0, 1, 0, "nowhere")).contains("release_to"));
 }
 
 #[test]
@@ -88,7 +130,7 @@ fn sensing_gates_expression() {
 
 #[test]
 fn division_splits_stocks_and_records_lineage() {
-    let division = rule("reproduction.division", 2, &format!("resource = \"E\", threshold = 10, site_capacity = 3, {NO_MUTATION}"));
+    let division = rule("reproduction.division", 2, &format!("requires = [{{ resource = \"E\", threshold = 10 }}], site_capacity = 3, {NO_MUTATION}"));
     let genome = gene("uptake", "resource = \"A\"", 1, "always", 0);
     let text = world((1, 1), [0; 4], 1, [11, 5, 0, 0], &genome, &division);
     let s = run(&text, 1, 1);
@@ -133,6 +175,35 @@ fn random_birth_and_death_ignore_stocks() {
     assert_eq!(s.entities.len(), 8, "1 -> 2 -> 4 -> 8 with no resources at all");
     let rules = rule("death.random", 2, "probability_ppm = 1000000, recycle = true");
     assert!(run(&world((1, 1), [0; 4], 5, [9; 4], "", &rules), 1, 1).entities.is_empty());
+}
+
+#[test]
+fn division_needs_every_required_resource() {
+    let both = rule("reproduction.division", 2, &format!("requires = [{{ resource = \"E\", threshold = 10 }}, {{ resource = \"B\", threshold = 4 }}], site_capacity = 9, {NO_MUTATION}"));
+    let births = |stock: [u64; 4]| run(&world((1, 1), [0; 4], 1, stock, "", &both), 1, 1).births;
+    assert_eq!(births([100, 0, 3, 0]), 0, "rich in energy but short of B");
+    assert_eq!(births([9, 0, 100, 0]), 0, "rich in B but short of energy");
+    assert_eq!(births([10, 0, 4, 0]), 1);
+    let none = rule("reproduction.division", 2, &format!("requires = [], site_capacity = 9, {NO_MUTATION}"));
+    let e = parse(&world((1, 1), [0; 4], 0, [0; 4], "", &none)).and_then(|(c, _)| lab_rules::build(&c).map(|_| ())).unwrap_err();
+    assert!(e.to_string().contains("requires"), "{e}");
+}
+
+#[test]
+fn several_founder_types_are_placed_with_their_own_stock_and_genome() {
+    let first = gene("uptake", "resource = \"A\"", 3, "always", 0);
+    let second = gene("secrete", "resource = \"B\"", 1, "always", 0);
+    let text = world((4, 4), [0; 4], 2, [5, 0, 0, 0], &first, "rules = []\n")
+        .replace("}] }]\n", &format!("}}] }}, {{ count = 3, stock = [0, 7, 0, 0], genome = [{second}] }}]\n"))
+        .replace("\nrules = []\n", "\n")
+        .replace("[world]", "rules = []\n[world]");
+    let s = run(&text, 0, 1);
+    assert_eq!(s.entities.iter().map(|e| e.id).collect::<Vec<_>>(), vec![0, 1, 2, 3, 4]);
+    assert_eq!(s.genomes.iter().map(|g| g[0].kind).collect::<Vec<_>>(), [vec![GeneKind::Uptake; 2], vec![GeneKind::Secrete; 3]].concat());
+    assert_eq!(s.ent_stock, [[5, 0, 0, 0].repeat(2), [0, 7, 0, 0].repeat(3)].concat());
+    assert_eq!((s.next_entity_id, s.total(0).unwrap(), s.total(1).unwrap()), (5, 10, 21));
+    let wrong = text.replace("stock = [0, 7, 0, 0]", "stock = [0, 7]");
+    assert!(parse(&wrong).unwrap_err().to_string().contains("founders[1]"));
 }
 
 fn founder() -> Vec<Gene> {
@@ -245,7 +316,7 @@ fn crossfeed_world_lives_and_is_reproducible() {
     let b = run(&text, 400, 4);
     assert_eq!(state_hash(&a, &hash), state_hash(&b, &hash), "births, deaths and mutation are thread-independent");
     assert!(!a.entities.is_empty(), "the population should persist for 400 ticks");
-    assert!(a.births > cfg.init.entities && a.deaths > 0, "there is turnover: {} births, {} deaths", a.births, a.deaths);
+    assert!(a.births > cfg.init.founders.iter().map(|f| f.count).sum::<u64>() && a.deaths > 0, "there is turnover: {} births, {} deaths", a.births, a.deaths);
     type Signature = Vec<(u8, u8, u8, u8, u16, u16)>;
     let distinct: std::collections::BTreeSet<Signature> =
         a.genomes.iter().map(|g| g.iter().map(|x| (x.kind as u8, x.a, x.b, x.sense, x.level, x.threshold)).collect()).collect();
@@ -253,4 +324,37 @@ fn crossfeed_world_lives_and_is_reproducible() {
     // Checkpoints carry genomes and lineage.
     let (restored, stored) = decode(&encode(&a, &hash)).unwrap();
     assert_eq!((restored, stored), (a, hash));
+}
+
+/// The construct-check worlds on a small lattice (same density), so they run quickly.
+fn small_control(name: &str) -> String {
+    let text = std::fs::read_to_string(format!("{}/../../configs/{name}.toml", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    text.replace("width = 48\nheight = 48", "width = 16\nheight = 16").replace("count = 1500", "count = 167").replace("count = 800", "count = 89")
+}
+
+#[test]
+fn positive_control_depends_on_transfer_and_negative_control_does_not() {
+    let positive = small_control("positive-control");
+    let intact = run(&positive, 600, 2);
+    let kinds: std::collections::BTreeSet<usize> = intact.genomes.iter().map(Vec::len).collect();
+    assert!(intact.entities.len() > 300 && intact.births > 500, "specialists persist together: {} alive, {} births", intact.entities.len(), intact.births);
+    assert_eq!(kinds.len(), 1);
+    let types: std::collections::BTreeSet<u8> = intact.genomes.iter().map(|g| g[1].b).collect();
+    assert_eq!(types.len(), 2, "both specialist types survive");
+    let cut = run(&positive.replace("release_to = \"site\"", "release_to = \"sink\"").replace("recycle = true", "recycle = false"), 600, 2);
+    assert!(cut.births < intact.births / 10, "without transfer the specialists cannot reproduce: {} vs {}", cut.births, intact.births);
+
+    let negative = small_control("negative-control");
+    let alone = run(&negative, 600, 2);
+    assert!(alone.entities.len() > 300, "self-sufficient entities need no one: {}", alone.entities.len());
+    assert_eq!(alone.site_stock.iter().skip(3).step_by(5).sum::<u64>() + alone.site_stock.iter().skip(4).step_by(5).sum::<u64>(), 0, "no intermediate ever reaches a site");
+}
+
+#[test]
+fn black_queen_world_lives_and_loses_genes() {
+    let text = small_control("blackqueen");
+    let s = run(&text, 800, 2);
+    assert!(s.entities.len() > 200, "{}", s.entities.len());
+    let first_steps = |g: &Vec<Gene>| [3u8, 4].iter().filter(|&&product| g.iter().any(|x| x.kind == GeneKind::Convert && x.a == 2 && x.b == product && x.level > 0)).count();
+    assert!(s.genomes.iter().any(|g| first_steps(g) < 2), "some lineage has lost a leaky step");
 }

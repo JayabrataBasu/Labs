@@ -14,7 +14,7 @@ mod topology;
 
 pub use codec::{decode, encode, state_hash, FORMAT_VERSION};
 pub use apply::apply;
-pub use delta::{check_conservation, Delta, Holder};
+pub use delta::{check_conservation, leaked_amount, Delta, Holder};
 pub use error::LabError;
 pub use rule::Rule;
 pub use sched::{Engine, CHUNK_SITES};

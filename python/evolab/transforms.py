@@ -3,7 +3,8 @@
 Each transform takes a config dict and returns a new one. A transform changes exactly one
 named mechanism, so an arm's difference from the intact world is its definition.
 
-N1a null.no_secretion - secrete genes are silent (they still cost): the designed interaction channel is off.
+N1a null.no_secretion - secreted and leaked matter goes out of the system instead of to the site: the
+                        producer's budget is unchanged, but nothing is transferred.
 N1b null.no_recycling - a dead entity's stocks leave the system instead of returning to its site, which
                         removes the second inter-entity channel (necromass).
 N1  = N1a + N1b, the complete "no transfer between entities" null. Run N1a and N1b separately as well:
@@ -36,7 +37,7 @@ def _need(cfg, id_, why):
 def no_secretion(cfg, **_):
     cfg = copy.deepcopy(cfg)
     for rule in _need(cfg, "metabolism.genes", "to silence secretion"):
-        rule["params"]["secretion"] = False
+        rule["params"]["release_to"] = "sink"
     return cfg
 
 

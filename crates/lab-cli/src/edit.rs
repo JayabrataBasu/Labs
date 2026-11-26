@@ -79,7 +79,7 @@ pub fn handle(mut request: Request, config_path: &Path, port: u16) {
         (Method::Get, "/catalog") => {
             let rules: Vec<_> = lab_rules::CATALOG
                 .iter()
-                .map(|(id, about, params)| serde_json::json!({ "id": id, "about": about, "params": serde_json::from_str::<serde_json::Value>(params).expect("catalog JSON is valid") }))
+                .map(|(id, about, params)| serde_json::json!({ "id": id, "version": lab_rules::version_of(id), "about": about, "params": serde_json::from_str::<serde_json::Value>(params).expect("catalog JSON is valid") }))
                 .collect();
             json_response(200, serde_json::Value::Array(rules))
         }

@@ -14,12 +14,12 @@ sys.path.insert(0, str(ROOT / "python"))
 from evolab import analysis, runner, spec, toml_out, transforms  # noqa: E402
 
 CROSSFEED = tomllib.loads((ROOT / "configs" / "crossfeed.toml").read_text())
-LAB = ROOT / "target" / "release" / "lab"
+LAB = Path(os.environ.get("LAB_BIN") or ROOT / "target" / "release" / "lab")
 
 
 class TomlWriter(unittest.TestCase):
     def test_roundtrips_real_configs(self):
-        for name in ("crossfeed.toml", "reference.toml"):
+        for name in sorted(p.name for p in (ROOT / "configs").glob("*.toml")):
             cfg = tomllib.loads((ROOT / "configs" / name).read_text())
             self.assertEqual(tomllib.loads(toml_out.dumps(cfg)), cfg, name)
 
@@ -36,10 +36,10 @@ class Transforms(unittest.TestCase):
 
     def test_no_secretion_changes_only_that_switch(self):
         out = transforms.apply(CROSSFEED, [{"name": "null.no_secretion"}])
-        self.assertFalse(self.rule(out, "metabolism.genes")[0]["params"]["secretion"])
-        self.assertTrue(self.rule(CROSSFEED, "metabolism.genes")[0]["params"]["secretion"], "the base config is not modified")
+        self.assertEqual(self.rule(out, "metabolism.genes")[0]["params"]["release_to"], "sink")
+        self.assertEqual(self.rule(CROSSFEED, "metabolism.genes")[0]["params"]["release_to"], "site", "the base config is not modified")
         restored = json.loads(json.dumps(out))
-        self.rule(restored, "metabolism.genes")[0]["params"]["secretion"] = True
+        self.rule(restored, "metabolism.genes")[0]["params"]["release_to"] = "site"
         self.assertEqual(restored, CROSSFEED)
 
     def test_well_mixed_stops_walking_and_scatters(self):
@@ -71,7 +71,7 @@ class Transforms(unittest.TestCase):
         self.assertFalse(self.rule(out, "death.starvation")[0]["params"]["recycle"])
         self.assertTrue(self.rule(CROSSFEED, "death.starvation")[0]["params"]["recycle"])
         both = transforms.apply(CROSSFEED, [{"name": "null.no_secretion"}, {"name": "null.no_recycling"}])
-        self.assertFalse(self.rule(both, "metabolism.genes")[0]["params"]["secretion"])
+        self.assertEqual(self.rule(both, "metabolism.genes")[0]["params"]["release_to"], "sink")
         self.assertFalse(self.rule(both, "death.starvation")[0]["params"]["recycle"])
         bare = {**CROSSFEED, "rules": [r for r in CROSSFEED["rules"] if r["id"] != "death.starvation"]}
         with self.assertRaises(ValueError):
@@ -115,12 +115,12 @@ transforms = [{{ name = "null.no_secretion" }}]
         return d / "spec.toml"
 
     def test_expansion_is_the_full_factorial(self):
-        path = self.make('[[sweeps]]\npath = "rules.5.params.divisor"\nvalues = [10, 20]\n[[sweeps]]\npath = "init.entities"\nvalues = [100, 200, 300]\n')
+        path = self.make('[[sweeps]]\npath = "rules.5.params.divisor"\nvalues = [10, 20]\n[[sweeps]]\npath = "init.founders.0.count"\nvalues = [100, 200, 300]\n')
         s, _, base = spec.load(path)
         runs = spec.expand(s, tomllib.loads(base.read_text()))
         self.assertEqual(len(runs), 2 * 2 * 3 * 3)
         first = runs[0]
-        self.assertEqual(first["config"]["init"]["entities"], 100)
+        self.assertEqual(first["config"]["init"]["founders"][0]["count"], 100)
         self.assertEqual([r["stream"] for r in first["config"]["rules"] if r["id"] == "decay.fraction"][0], 4)
         self.assertEqual(sorted({r["seed"] for r in runs}), [1001, 1002, 1003])
         self.assertTrue(all(r["config"]["seed"] == r["seed"] for r in runs))
@@ -142,6 +142,14 @@ transforms = [{{ name = "null.no_secretion" }}]
         self.assertIn("reserved for exploration", str(caught.exception))
         self.assertFalse(spec.frozen_path(path).exists())
         spec.load(path)  # loading (exploratory use) is still allowed
+
+    def test_sweep_paths_reach_into_lists(self):
+        cfg = json.loads(json.dumps(CROSSFEED))
+        spec.set_path(cfg, "rules.6.params.reactions.0.leak_ppm", 123)
+        self.assertEqual([r for r in cfg["rules"] if r["stream"] == 6][0]["params"]["reactions"][0]["leak_ppm"], 123)
+        for bad in ("rules.6.params.reactions.9.leak_ppm", "init.founders.3.count", "rules.6.params.reactions.x.leak_ppm"):
+            with self.assertRaises(ValueError):
+                spec.set_path(cfg, bad, 1)
 
     def test_missing_fields_and_duplicate_seeds_are_errors(self):
         path = self.make()
@@ -196,7 +204,7 @@ class EndToEnd(unittest.TestCase):
         self.addCleanup(shutil.rmtree, d, True)
         cfg = json.loads(json.dumps(CROSSFEED))
         cfg["world"]["width"] = cfg["world"]["height"] = 16
-        cfg["init"]["entities"] = 80
+        cfg["init"]["founders"][0]["count"] = 80
         (d / "base.toml").write_text(toml_out.dumps(cfg))
         (d / "spec.toml").write_text('''name = "e2e"
 base_config = "base.toml"

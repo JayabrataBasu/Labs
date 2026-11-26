@@ -1,6 +1,6 @@
 # Reference world for the cross-platform replay check (DR-013). Do not edit: its hash is pinned
 # in configs/reference.sha256. Every field is required; there are no defaults.
-schema_version = 1
+schema_version = 2
 seed = 20261116
 
 [world]
@@ -12,8 +12,10 @@ resources = ["A", "B"]
 [init]
 site_stock = [50, 0]
 patches = []
-entities = 2000
-entity_stock = [5, 0]
+
+[[init.founders]]
+count = 2000
+stock = [5, 0]
 genome = []
 
 [[rules]]

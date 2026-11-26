@@ -23,7 +23,9 @@ pub enum Delta {
     Transfer { from: Holder, to: Holder, resource: u16, amount: u64 },
     /// Inside one entity, consume up to `amount` of `from` and produce
     /// `floor(consumed * yield_num / yield_den)` of `to`. Requires `yield_num <= yield_den`, `yield_den > 0`.
-    Convert { entity: u32, from: u16, to: u16, amount: u64, yield_num: u32, yield_den: u32 },
+    /// Of that product, a share `leak_ppm` escapes at once (see [`leaked_amount`]): to the entity's
+    /// site, or out of the system when `leak_to_sink`.
+    Convert { entity: u32, from: u16, to: u16, amount: u64, yield_num: u32, yield_den: u32, leak_ppm: u32, leak_draw: u32, leak_to_sink: bool },
     /// Relocate an entity to a site adjacent to its current one.
     Move { entity: u32, to: u32 },
     /// Relocate an entity to any site (used by well-mixed control worlds).
@@ -34,6 +36,17 @@ pub enum Delta {
     /// The parent divides: the offspring appears at the parent's site with half of each of
     /// the parent's stocks (rounded down) and the given genome.
     Spawn { parent: u32, genome: Vec<Gene> },
+}
+
+/// How much of `produced` leaks at `leak_ppm` parts per million. The whole part always leaks;
+/// the fractional unit leaks with the matching probability, decided by `draw`, so that small
+/// amounts are not rounded away and the expected leak is exact.
+pub fn leaked_amount(produced: u64, leak_ppm: u32, draw: u32) -> u64 {
+    const PPM: u128 = 1_000_000;
+    let scaled = u128::from(produced) * u128::from(leak_ppm);
+    let whole = (scaled / PPM) as u64;
+    let extra = u128::from(lab_rng::below(draw, PPM as u32)) < scaled % PPM;
+    whole + u64::from(extra)
 }
 
 /// For every resource: `total == initial_total + influx + converted_in - dissipated - converted_out`, exactly.

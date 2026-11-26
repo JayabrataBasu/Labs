@@ -1,0 +1,102 @@
+# Black Queen world for RQ1 (DR-020). A flows in. Two essential products need two pathways:
+# A -> B -> E (energy: starvation) and A -> C -> F (needed, with E, to divide).
+# The first step of each pathway leaks a share of its product to the site. Founders can do
+# everything; whether lineages shed a step and live off neighbours' leaks is an outcome.
+# Stream numbers are the rule's position (sweeps refer to them: 8 metabolism, 11 division, 12 movement).
+schema_version = 2
+seed = 1
+
+[world]
+width = 48
+height = 48
+wrap = true
+resources = ["E", "F", "A", "B", "C"]
+
+[init]
+site_stock = [0, 0, 200, 0, 0]
+patches = []
+
+[[init.founders]]
+count = 800
+stock = [60, 60, 0, 0, 0]
+genome = [
+  { kind = "uptake", resource = "A", level = 60, sense = "always", threshold = 0 },
+  { kind = "convert", from = "A", to = "B", level = 30, sense = "always", threshold = 0 },
+  { kind = "convert", from = "A", to = "C", level = 30, sense = "always", threshold = 0 },
+  { kind = "uptake", resource = "B", level = 30, sense = "always", threshold = 0 },
+  { kind = "uptake", resource = "C", level = 30, sense = "always", threshold = 0 },
+  { kind = "convert", from = "B", to = "E", level = 30, sense = "always", threshold = 0 },
+  { kind = "convert", from = "C", to = "F", level = 30, sense = "always", threshold = 0 },
+]
+
+[[rules]]
+id = "influx.constant"
+version = 1
+stream = 1
+params = { resource = "A", amount = 120, every = 1 }
+
+[[rules]]
+id = "diffusion.integer"
+version = 1
+stream = 2
+params = { resource = "A", divisor = 8 }
+
+[[rules]]
+id = "diffusion.integer"
+version = 1
+stream = 3
+params = { resource = "B", divisor = 8 }
+
+[[rules]]
+id = "diffusion.integer"
+version = 1
+stream = 4
+params = { resource = "C", divisor = 8 }
+
+[[rules]]
+id = "decay.fraction"
+version = 1
+stream = 5
+params = { resource = "A", divisor = 20 }
+
+[[rules]]
+id = "decay.fraction"
+version = 1
+stream = 6
+params = { resource = "B", divisor = 10 }
+
+[[rules]]
+id = "decay.fraction"
+version = 1
+stream = 7
+params = { resource = "C", divisor = 10 }
+
+[[rules]]
+id = "metabolism.genes"
+version = 2
+stream = 8
+params = { energy = "E", base_cost = 1, gene_cost = 1, yield_num = 3, yield_den = 4, reactions = [{ from = "A", to = "B", leak_ppm = 200000 }, { from = "A", to = "C", leak_ppm = 200000 }, { from = "B", to = "E", leak_ppm = 0 }, { from = "C", to = "F", leak_ppm = 0 }], release_to = "site" }
+
+[[rules]]
+id = "death.starvation"
+version = 1
+stream = 9
+params = { resource = "E", recycle = true }
+
+[[rules]]
+id = "death.random"
+version = 1
+stream = 10
+params = { probability_ppm = 5000, recycle = true }
+
+[[rules]]
+id = "reproduction.division"
+version = 2
+stream = 11
+params = { requires = [{ resource = "E", threshold = 120 }, { resource = "F", threshold = 120 }], site_capacity = 4, mutation = { point_ppm = 20000, point_magnitude = 5, retarget_ppm = 2000, duplicate_ppm = 2000, delete_ppm = 10000, max_genes = 16 } }
+
+[[rules]]
+id = "move.random"
+version = 1
+stream = 12
+params = { probability_ppm = 10000 }

@@ -23,11 +23,21 @@ fn rule_text(kind: usize, stream: usize, resource: usize, a: u64, b: u64, k: usi
         2 => ("uptake.fixed", format!("resource = \"{r}\", amount = {}", a % 6)),
         3 => ("maintenance.fixed", format!("resource = \"{r}\", amount = {}", a % 4)),
         4 => ("move.random", format!("probability_ppm = {}", a % 1_000_001)),
-        5 => ("metabolism.genes", format!("energy = \"{r}\", base_cost = {}, gene_cost = {}, yield_num = {}, yield_den = 4, reactions = [{}], secretion = {}", a % 3, b % 2, a % 5, if k > 1 { "[\"R0\", \"R1\"]" } else { "" }, b.is_multiple_of(2))),
+        5 => (
+            "metabolism.genes",
+            format!(
+                "energy = \"{r}\", base_cost = {}, gene_cost = {}, yield_num = {}, yield_den = 4, reactions = [{}], release_to = \"{}\"",
+                a % 3,
+                b % 2,
+                a % 5,
+                if k > 1 { format!("{{ from = \"R0\", to = \"R1\", leak_ppm = {} }}", b % 1_000_001) } else { String::new() },
+                if b.is_multiple_of(5) { "sink" } else { "site" }
+            ),
+        ),
         6 => (
             "reproduction.division",
             format!(
-                "resource = \"{r}\", threshold = {}, site_capacity = {}, mutation = {{ point_ppm = {}, point_magnitude = 3, retarget_ppm = {}, duplicate_ppm = {}, delete_ppm = {}, max_genes = 12 }}",
+                "requires = [{{ resource = \"{r}\", threshold = {} }}], site_capacity = {}, mutation = {{ point_ppm = {}, point_magnitude = 3, retarget_ppm = {}, duplicate_ppm = {}, delete_ppm = {}, max_genes = 12 }}",
                 1 + a % 12, 1 + b % 6, a % 400_000, b % 300_000, a % 200_000, b % 200_000
             ),
         ),
@@ -35,7 +45,8 @@ fn rule_text(kind: usize, stream: usize, resource: usize, a: u64, b: u64, k: usi
         8 => ("mix.relocate", format!("probability_ppm = {}", a % 1_000_001)),
         _ => ("decay.fraction", format!("resource = \"{r}\", divisor = {}", 1 + a % 9)),
     };
-    format!("[[rules]]\nid = \"{id}\"\nversion = 1\nstream = {stream}\nparams = {{ {params} }}\n")
+    let version = if id == "metabolism.genes" || id == "reproduction.division" { 2 } else { 1 };
+    format!("[[rules]]\nid = \"{id}\"\nversion = {version}\nstream = {stream}\nparams = {{ {params} }}\n")
 }
 
 fn world() -> impl Strategy<Value = World> {
@@ -56,11 +67,13 @@ fn world() -> impl Strategy<Value = World> {
                 genome += ", { kind = \"secrete\", resource = \"R1\", level = 1, sense = \"R0\", threshold = 2 }";
             }
             let mut text = format!(
-                "schema_version = 1\nseed = {seed}\n[world]\nwidth = {w}\nheight = {h}\nwrap = {wrap}\nresources = [{}]\n\
-                 [init]\nsite_stock = [{}]\npatches = []\nentities = {entities}\nentity_stock = [{}]\ngenome = [{genome}]\n",
+                "schema_version = 2\nseed = {seed}\n[world]\nwidth = {w}\nheight = {h}\nwrap = {wrap}\nresources = [{}]\n\
+                 [init]\nsite_stock = [{}]\npatches = []\nfounders = [{{ count = {entities}, stock = [{}], genome = [{genome}] }}, {{ count = {}, stock = [{}], genome = [] }}]\n",
                 resources.join(", "),
                 list(&site),
-                list(&ent)
+                list(&ent),
+                entities / 3,
+                list(&site)
             );
             for (i, &kind) in kinds.iter().enumerate() {
                 let (resource, a, b) = params[i];
@@ -176,7 +189,7 @@ proptest! {
             prop_assert!(s.entities.windows(2).all(|p| p[0].id < p[1].id));
             prop_assert!(s.entities.iter().all(|x| x.parent.is_none() && x.site < s.topo.n_sites()));
             prop_assert_eq!(s.genomes.len(), s.entities.len());
-            prop_assert_eq!(s.entities.len() as u64, cfg.init.entities + s.births - s.deaths);
+            prop_assert_eq!(s.entities.len() as u64, cfg.init.founders.iter().map(|f| f.count).sum::<u64>() + s.births - s.deaths);
         }
     }
 }

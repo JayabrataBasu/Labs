@@ -10,7 +10,8 @@
 //! 4. Otherwise the amount is withdrawn immediately but credited only after every site has
 //!    been processed. Nothing can be passed on in the same rule step in which it arrived
 //!    from another site.
-//! 5. Conversions happen inside one entity and are immediate.
+//! 5. Conversions happen inside one entity and are immediate. A leaking share of the product
+//!    goes at once to the entity's own site (or to the sink).
 //! 6. Moves and relocations take effect next, in proposal order.
 //! 7. Deaths and births take effect last, in proposal order. A removed entity returns what
 //!    it holds to its site (`recycle`) or dissipates it; an entity removed earlier in the same
@@ -18,7 +19,7 @@
 //!
 //! Sites therefore never read each other's stocks while a rule is applied, which is what
 //! lets blocks of sites be processed on different threads with identical results.
-use crate::{Delta, EntityMeta, Gene, Holder, LabError, SiteIndex, State};
+use crate::{leaked_amount, Delta, EntityMeta, Gene, Holder, LabError, SiteIndex, State};
 use rayon::prelude::*;
 use std::ops::Range;
 
@@ -135,7 +136,7 @@ fn process_block(ctx: &Context, block: Block) -> Result<BlockOut, LabError> {
                 at_home(parent)?;
                 out.life.push(Life::Spawn(parent, genome.clone()));
             }
-            Delta::Convert { entity, from, to, amount, yield_num, yield_den } => {
+            Delta::Convert { entity, from, to, amount, yield_num, yield_den, leak_ppm, leak_draw, leak_to_sink } => {
                 at_home(entity)?;
                 let (rf, rt) = (from as usize, to as usize);
                 if rf >= ctx.k || rt >= ctx.k || rf == rt {
@@ -144,10 +145,23 @@ fn process_block(ctx: &Context, block: Block) -> Result<BlockOut, LabError> {
                 if yield_den == 0 || yield_num > yield_den {
                     return Err(LabError::Config(format!("conversion yield {yield_num}/{yield_den} must be between 0 and 1")));
                 }
+                if leak_ppm > 1_000_000 {
+                    return Err(LabError::Config(format!("conversion leak {leak_ppm} ppm exceeds 1000000")));
+                }
                 let base = (ctx.index.position(entity) - block.ent_base) * ctx.k;
                 let consumed = amount.min(block.ent_stock[base + rf]);
                 let produced = (u128::from(consumed) * u128::from(yield_num) / u128::from(yield_den)) as u64;
-                let credited = block.ent_stock[base + rt].checked_add(produced).ok_or(LabError::Overflow("resource stock"))?;
+                let leaked = leaked_amount(produced, leak_ppm, leak_draw);
+                let credited = block.ent_stock[base + rt].checked_add(produced - leaked).ok_or(LabError::Overflow("resource stock"))?;
+                if leaked > 0 {
+                    let target = if leak_to_sink {
+                        &mut out.dissipated[rt]
+                    } else {
+                        let site = ctx.entities[entity as usize].site;
+                        &mut block.site_stock[(site - block.sites.start) as usize * ctx.k + rt]
+                    };
+                    *target = target.checked_add(leaked).ok_or(LabError::Overflow("resource stock"))?;
+                }
                 out.converted_out[rf] = out.converted_out[rf].checked_add(consumed).ok_or(LabError::Overflow("conversion ledger"))?;
                 out.converted_in[rt] = out.converted_in[rt].checked_add(produced).ok_or(LabError::Overflow("conversion ledger"))?;
                 block.ent_stock[base + rf] -= consumed;

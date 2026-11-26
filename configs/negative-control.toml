@@ -1,0 +1,99 @@
+# Construct-check negative control: self-sufficient generalists, nothing leaks and the dead
+# are not recycled, so no matter passes between entities. Detectors must find nothing here.
+schema_version = 2
+seed = 1
+
+[world]
+width = 48
+height = 48
+wrap = true
+resources = ["E", "F", "A", "B", "C"]
+
+[init]
+site_stock = [0, 0, 200, 0, 0]
+patches = []
+
+[[init.founders]]
+count = 800
+stock = [60, 60, 0, 0, 0]
+genome = [
+  { kind = "uptake", resource = "A", level = 60, sense = "always", threshold = 0 },
+  { kind = "convert", from = "A", to = "B", level = 30, sense = "always", threshold = 0 },
+  { kind = "convert", from = "A", to = "C", level = 30, sense = "always", threshold = 0 },
+  { kind = "uptake", resource = "B", level = 30, sense = "always", threshold = 0 },
+  { kind = "uptake", resource = "C", level = 30, sense = "always", threshold = 0 },
+  { kind = "convert", from = "B", to = "E", level = 30, sense = "always", threshold = 0 },
+  { kind = "convert", from = "C", to = "F", level = 30, sense = "always", threshold = 0 },
+]
+
+[[rules]]
+id = "influx.constant"
+version = 1
+stream = 1
+params = { resource = "A", amount = 120, every = 1 }
+
+[[rules]]
+id = "diffusion.integer"
+version = 1
+stream = 2
+params = { resource = "A", divisor = 8 }
+
+[[rules]]
+id = "diffusion.integer"
+version = 1
+stream = 3
+params = { resource = "B", divisor = 8 }
+
+[[rules]]
+id = "diffusion.integer"
+version = 1
+stream = 4
+params = { resource = "C", divisor = 8 }
+
+[[rules]]
+id = "decay.fraction"
+version = 1
+stream = 5
+params = { resource = "A", divisor = 20 }
+
+[[rules]]
+id = "decay.fraction"
+version = 1
+stream = 6
+params = { resource = "B", divisor = 10 }
+
+[[rules]]
+id = "decay.fraction"
+version = 1
+stream = 7
+params = { resource = "C", divisor = 10 }
+
+[[rules]]
+id = "metabolism.genes"
+version = 2
+stream = 8
+params = { energy = "E", base_cost = 1, gene_cost = 1, yield_num = 3, yield_den = 4, reactions = [{ from = "A", to = "B", leak_ppm = 0 }, { from = "A", to = "C", leak_ppm = 0 }, { from = "B", to = "E", leak_ppm = 0 }, { from = "C", to = "F", leak_ppm = 0 }], release_to = "site" }
+
+[[rules]]
+id = "death.starvation"
+version = 1
+stream = 9
+params = { resource = "E", recycle = false }
+
+[[rules]]
+id = "death.random"
+version = 1
+stream = 10
+params = { probability_ppm = 5000, recycle = false }
+
+[[rules]]
+id = "reproduction.division"
+version = 2
+stream = 11
+params = { requires = [{ resource = "E", threshold = 120 }, { resource = "F", threshold = 120 }], site_capacity = 4, mutation = { point_ppm = 0, point_magnitude = 0, retarget_ppm = 0, duplicate_ppm = 0, delete_ppm = 0, max_genes = 16 } }
+
+[[rules]]
+id = "move.random"
+version = 1
+stream = 12
+params = { probability_ppm = 10000 }

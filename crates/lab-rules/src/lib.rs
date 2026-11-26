@@ -38,6 +38,7 @@ pub const RULE_IDS: &[&str] = &[
 ];
 
 /// What the world editor offers when a rule is added: `(id, one-line description, params as JSON)`.
+/// The version a new instance should use is [`version_of`].
 /// `$R0`, `$R1`, `$R2` stand for the world's first, second and third resource names.
 pub const CATALOG: &[(&str, &str, &str)] = &[
     (influx::ID, "The outside world adds a resource to every site", r#"{"resource":"$R0","amount":2,"every":1}"#),
@@ -48,14 +49,14 @@ pub const CATALOG: &[(&str, &str, &str)] = &[
     (
         metabolism::ID,
         "Entities act through their genes and pay for carrying them",
-        r#"{"energy":"$R0","base_cost":2,"gene_cost":1,"yield_num":1,"yield_den":2,"reactions":[["$R1","$R2"]],"secretion":true}"#,
+        r#"{"energy":"$R0","base_cost":2,"gene_cost":1,"yield_num":1,"yield_den":2,"reactions":[{"from":"$R1","to":"$R2","leak_ppm":100000}],"release_to":"site"}"#,
     ),
     (movement::ID, "Entities step to a random neighbouring site", r#"{"probability_ppm":100000}"#),
     (environment::RELOCATE_ID, "Entities jump to any site: removes spatial structure (null world N2)", r#"{"probability_ppm":100000}"#),
     (
         lifecycle::DIVISION_ID,
-        "Entities holding enough of a resource divide; offspring may mutate",
-        r#"{"resource":"$R0","threshold":200,"site_capacity":4,"mutation":{"point_ppm":20000,"point_magnitude":5,"retarget_ppm":2000,"duplicate_ppm":2000,"delete_ppm":5000,"max_genes":16}}"#,
+        "Entities holding enough of every required resource divide; offspring may mutate",
+        r#"{"requires":[{"resource":"$R0","threshold":200}],"site_capacity":4,"mutation":{"point_ppm":20000,"point_magnitude":5,"retarget_ppm":2000,"duplicate_ppm":2000,"delete_ppm":5000,"max_genes":16}}"#,
     ),
     (
         lifecycle::RANDOM_BIRTH_ID,
@@ -71,6 +72,14 @@ pub const CATALOG: &[(&str, &str, &str)] = &[
     ),
     (environment::CULL_ID, "At one tick, remove each entity with a probability", r#"{"tick":1000,"probability_ppm":500000,"recycle":true}"#),
 ];
+
+/// The rule version this build implements.
+pub fn version_of(id: &str) -> u32 {
+    match id {
+        metabolism::ID | lifecycle::DIVISION_ID => 2,
+        _ => 1,
+    }
+}
 
 /// Builds the configured rules, in config order.
 pub fn build(cfg: &Config) -> Result<Vec<Box<dyn Rule>>, LabError> {

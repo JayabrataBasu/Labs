@@ -48,16 +48,14 @@
       <p class="hint">Renaming a resource does not update the places that mention it; fix those by hand below.</p>
     </section>
     <section>
-      <h2>Initial population</h2>
-      <div class="row"><label>Entities<input type="number" id="entities" min="0"></label></div>
-      <div id="stocks"></div>
-      <p class="hint">Founders are placed at random sites by the seeded initial stream.</p>
+      <h2>Starting resources per site</h2>
+      <div id="siteStocks"></div>
     </section>
     <section>
-      <h2>Founder genome</h2>
-      <div id="genes"></div>
-      <button id="addGene">+ gene</button>
-      <p class="hint">Each gene: what it does, which resources, how much per tick, and an optional gate (acts only if the sensed resource at the site is at least the threshold).</p>
+      <h2>Founder types</h2>
+      <div id="founders"></div>
+      <button id="addFounder">+ founder type</button>
+      <p class="hint">Founders are placed at random sites by the seeded initial stream. Each gene: what it does, which resources, how much per tick, and an optional gate (acts only if the sensed resource at the site is at least the threshold).</p>
     </section>
   </div>
   <div>
@@ -112,8 +110,7 @@ function renderAll() {
   $('width').value = cfg.world.width; $('height').value = cfg.world.height;
   $('wrap').value = String(cfg.world.wrap); $('seed').value = cfg.seed;
   $('resources').value = names().join(', ');
-  $('entities').value = cfg.init.entities;
-  renderResourcePickers(); renderStocks(); renderGenes(); renderPatches(); renderRules(); renderCatalog(); drawMap();
+  renderResourcePickers(); renderStocks(); renderFounders(); renderPatches(); renderRules(); renderCatalog(); drawMap();
 }
 function renderResourcePickers() {
   const keep = [$('drawResource').value, $('showResource').value];
@@ -125,41 +122,55 @@ function renderResourcePickers() {
   }
 }
 function renderStocks() {
-  $('stocks').innerHTML = '<div class="row">' + names().map((n, i) =>
-    `<label>${n} per site<input type="number" min="0" data-k="site_stock" data-i="${i}" value="${cfg.init.site_stock[i] ?? 0}"></label>` +
-    `<label>${n} per entity<input type="number" min="0" data-k="entity_stock" data-i="${i}" value="${cfg.init.entity_stock[i] ?? 0}"></label>`).join('') + '</div>';
-  $('stocks').querySelectorAll('input').forEach(el => el.onchange = () => { cfg.init[el.dataset.k][+el.dataset.i] = num(el.value); drawMap(); });
+  $('siteStocks').innerHTML = '<div class="row">' + names().map((n, i) =>
+    `<label>${n}<input type="number" min="0" data-i="${i}" value="${cfg.init.site_stock[i] ?? 0}"></label>`).join('') + '</div>';
+  $('siteStocks').querySelectorAll('input').forEach(el => el.onchange = () => { cfg.init.site_stock[+el.dataset.i] = num(el.value); drawMap(); });
 }
 
-// ---- genes -------------------------------------------------------------------
-function renderGenes() {
-  $('genes').innerHTML = cfg.init.genome.map((g, i) => {
-    const two = g.kind === 'convert';
-    return `<div class="card" data-gene="${i}"><div class="row">
-      <label>Kind<select data-f="kind"><option ${g.kind === 'uptake' ? 'selected' : ''}>uptake</option><option ${two ? 'selected' : ''}>convert</option><option ${g.kind === 'secrete' ? 'selected' : ''}>secrete</option></select></label>
-      ${two ? `<label>From<select data-f="from">${resOptions(g.from)}</select></label><label>To<select data-f="to">${resOptions(g.to)}</select></label>`
-            : `<label>Resource<select data-f="resource">${resOptions(g.resource)}</select></label>`}
-      <label>Level<input type="number" min="0" max="65535" data-f="level" value="${g.level}"></label>
-      <label>Gate<select data-f="sense">${resOptions(g.sense, ['always'])}</select></label>
-      <label>Threshold<input type="number" min="0" max="65535" data-f="threshold" value="${g.threshold}"></label>
-      <button class="danger" data-del="${i}">remove</button></div></div>`;
-  }).join('') || '<p class="hint">No genes: founders do nothing.</p>';
-  $('genes').querySelectorAll('[data-gene]').forEach(card => {
-    const i = +card.dataset.gene;
+// ---- founder types and genes ------------------------------------------------------
+function geneCard(g, f, i) {
+  const two = g.kind === 'convert';
+  return `<div class="card" data-gene="${f}:${i}"><div class="row">
+    <label>Kind<select data-f="kind"><option ${g.kind === 'uptake' ? 'selected' : ''}>uptake</option><option ${two ? 'selected' : ''}>convert</option><option ${g.kind === 'secrete' ? 'selected' : ''}>secrete</option></select></label>
+    ${two ? `<label>From<select data-f="from">${resOptions(g.from)}</select></label><label>To<select data-f="to">${resOptions(g.to)}</select></label>`
+          : `<label>Resource<select data-f="resource">${resOptions(g.resource)}</select></label>`}
+    <label>Level<input type="number" min="0" max="65535" data-f="level" value="${g.level}"></label>
+    <label>Gate<select data-f="sense">${resOptions(g.sense, ['always'])}</select></label>
+    <label>Threshold<input type="number" min="0" max="65535" data-f="threshold" value="${g.threshold}"></label>
+    <button class="danger" data-del>remove</button></div></div>`;
+}
+function renderFounders() {
+  $('founders').innerHTML = cfg.init.founders.map((t, f) => `<div class="card" data-founder="${f}">
+    <div class="row"><strong style="margin:0 .6rem .5rem 0">Type ${f + 1}</strong>
+      <label>Count<input type="number" min="0" data-count value="${t.count}"></label>
+      ${names().map((n, i) => `<label>${n} each<input type="number" min="0" data-stock="${i}" value="${t.stock[i] ?? 0}"></label>`).join('')}
+      <button data-copy>duplicate type</button><button class="danger" data-drop>remove type</button></div>
+    ${t.genome.map((g, i) => geneCard(g, f, i)).join('') || '<p class="hint">No genes: these founders do nothing.</p>'}
+    <button data-add>+ gene</button></div>`).join('') || '<p class="hint">No founders: the world starts empty.</p>';
+  $('founders').querySelectorAll('[data-founder]').forEach(card => {
+    const f = +card.dataset.founder, t = cfg.init.founders[f];
+    card.querySelector('[data-count]').onchange = e => { try { t.count = num(e.target.value); } catch (err) { say(err.message, 'err'); } };
+    card.querySelectorAll('[data-stock]').forEach(el => el.onchange = () => { t.stock[+el.dataset.stock] = num(el.value); });
+    card.querySelector('[data-copy]').onclick = () => { cfg.init.founders.splice(f + 1, 0, JSON.parse(JSON.stringify(t))); renderFounders(); };
+    card.querySelector('[data-drop]').onclick = () => { cfg.init.founders.splice(f, 1); renderFounders(); };
+    card.querySelector('[data-add]').onclick = () => { t.genome.push({ kind: 'uptake', resource: names()[0], level: 10, sense: 'always', threshold: 0 }); renderFounders(); };
+  });
+  $('founders').querySelectorAll('[data-gene]').forEach(card => {
+    const [f, i] = card.dataset.gene.split(':').map(Number), genome = cfg.init.founders[f].genome;
     card.querySelectorAll('[data-f]').forEach(el => el.onchange = () => {
-      const g = cfg.init.genome[i], f = el.dataset.f;
-      if (f === 'kind') {
+      const g = genome[i], key = el.dataset.f;
+      if (key === 'kind') {
         const old = g.resource || g.from, r0 = names()[0], r1 = names()[1] || names()[0];
         const base = { level: g.level, sense: g.sense, threshold: g.threshold };
-        cfg.init.genome[i] = el.value === 'convert' ? { kind: 'convert', from: old, to: old === r1 ? r0 : r1, ...base } : { kind: el.value, resource: old, ...base };
-        renderGenes();
-      } else if (f === 'level' || f === 'threshold') { g[f] = num(el.value); }
-      else { g[f] = el.value; if (f === 'sense' && el.value === 'always') { g.threshold = 0; renderGenes(); } }
+        genome[i] = el.value === 'convert' ? { kind: 'convert', from: old, to: old === r1 ? r0 : r1, ...base } : { kind: el.value, resource: old, ...base };
+        renderFounders();
+      } else if (key === 'level' || key === 'threshold') { g[key] = num(el.value); }
+      else { g[key] = el.value; if (key === 'sense' && el.value === 'always') { g.threshold = 0; renderFounders(); } }
     });
-    card.querySelector('[data-del]').onclick = () => { cfg.init.genome.splice(i, 1); renderGenes(); };
+    card.querySelector('[data-del]').onclick = () => { genome.splice(i, 1); renderFounders(); };
   });
 }
-$('addGene').onclick = () => { cfg.init.genome.push({ kind: 'uptake', resource: names()[0], level: 10, sense: 'always', threshold: 0 }); renderGenes(); };
+$('addFounder').onclick = () => { cfg.init.founders.push({ count: 100, stock: names().map(() => 0), genome: [] }); renderFounders(); };
 
 // ---- patches and map ------------------------------------------------------------
 function renderPatches() {
@@ -239,7 +250,7 @@ function renderCatalog() {
 $('addRule').onclick = () => {
   const c = catalog.find(x => x.id === $('catalog').value), n = names();
   const params = JSON.parse(JSON.stringify(c.params), (k, v) => typeof v === 'string' && /^\$R[0-2]$/.test(v) ? n[Math.min(+v[2], n.length - 1)] : v);
-  cfg.rules.push({ id: c.id, version: 1, stream: nextStream(), params });
+  cfg.rules.push({ id: c.id, version: c.version, stream: nextStream(), params });
   renderRules(); drawMap();
 };
 
@@ -247,13 +258,13 @@ $('addRule').onclick = () => {
 function readFields() {
   cfg.world.width = num($('width').value); cfg.world.height = num($('height').value);
   cfg.world.wrap = $('wrap').value === 'true'; cfg.seed = $('seed').value.trim();
-  cfg.init.entities = num($('entities').value);
 }
-['width', 'height', 'wrap', 'seed', 'entities'].forEach(id => $(id).onchange = () => { try { readFields(); drawMap(); } catch (e) { say(e.message, 'err'); } });
+['width', 'height', 'wrap', 'seed'].forEach(id => $(id).onchange = () => { try { readFields(); drawMap(); } catch (e) { say(e.message, 'err'); } });
 $('resources').onchange = () => {
   const list = $('resources').value.split(',').map(s => s.trim()).filter(Boolean);
   cfg.world.resources = list;
-  ['site_stock', 'entity_stock'].forEach(k => { cfg.init[k] = list.map((_, i) => cfg.init[k][i] ?? 0); });
+  cfg.init.site_stock = list.map((_, i) => cfg.init.site_stock[i] ?? 0);
+  cfg.init.founders.forEach(t => { t.stock = list.map((_, i) => t.stock[i] ?? 0); });
   renderAll();
 };
 $('save').onclick = async () => {

@@ -1,6 +1,7 @@
 //! Birth and death.
 //!
-//! - `reproduction.division`: an entity holding at least `threshold` of a resource divides,
+//! - `reproduction.division`: an entity holding at least the threshold of every resource in
+//!   `requires` divides,
 //!   unless its site already holds `site_capacity` entities. Selection acts through this rule:
 //!   who reproduces depends on what their genes achieved.
 //! - `reproduction.random`: every entity divides with a fixed probability, whatever it holds.
@@ -48,17 +49,24 @@ pub const DIVISION_ID: &str = "reproduction.division";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct DivisionParams {
+struct Requirement {
     resource: String,
     threshold: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DivisionParams {
+    /// All of these must be held before an entity can divide.
+    requires: Vec<Requirement>,
     site_capacity: u32,
     mutation: MutationParams,
 }
 
 pub struct Division {
     stream: u16,
-    resource: usize,
-    threshold: u64,
+    /// `(resource index, threshold)` pairs.
+    requires: Vec<(usize, u64)>,
     site_capacity: u32,
     mutation: MutationParams,
 }
@@ -67,13 +75,13 @@ impl Division {
     pub fn new(cfg: &RuleCfg, resources: &[String]) -> Result<Self, LabError> {
         let p: DivisionParams = params(cfg)?;
         p.mutation.validate().map_err(|e| invalid(cfg, &e.to_string()))?;
-        if p.threshold == 0 {
-            return Err(invalid(cfg, "threshold must be at least 1"));
+        if p.requires.is_empty() || p.requires.iter().any(|r| r.threshold == 0) {
+            return Err(invalid(cfg, "requires must list at least one resource, each with a threshold of at least 1"));
         }
+        let requires = p.requires.iter().map(|r| Ok((resource_index(cfg, &r.resource, resources)? as usize, r.threshold))).collect::<Result<_, LabError>>()?;
         Ok(Division {
             stream: cfg.stream,
-            resource: resource_index(cfg, &p.resource, resources)? as usize,
-            threshold: p.threshold,
+            requires,
             site_capacity: p.site_capacity,
             mutation: p.mutation,
         })
@@ -81,7 +89,15 @@ impl Division {
 }
 
 impl Rule for Division {
-    rule_header!(DIVISION_ID);
+    fn id(&self) -> &'static str {
+        DIVISION_ID
+    }
+    fn version(&self) -> u32 {
+        2
+    }
+    fn stream(&self) -> u16 {
+        self.stream
+    }
     fn propose(&self, state: &State, index: &SiteIndex, rng: RuleRng, sites: Range<u32>, out: &mut Vec<Delta>) {
         let tick = state.tick as u32;
         for site in sites {
@@ -92,7 +108,7 @@ impl Rule for Division {
                     break;
                 }
                 let e = entity as usize;
-                if state.ent_stock[e * state.k + self.resource] >= self.threshold {
+                if self.requires.iter().all(|&(r, threshold)| state.ent_stock[e * state.k + r] >= threshold) {
                     let genome = self.mutation.offspring(&state.genomes[e], rng, tick, state.entities[e].id, state.k as u8);
                     out.push(Delta::Spawn { parent: entity, genome });
                     room -= 1;

@@ -5,15 +5,18 @@
 //! least `threshold` of the sensed resource (read before this rule changes anything):
 //! - uptake: take up to `level` of a resource from the site;
 //! - convert: turn up to `level` of one resource into another at `yield_num / yield_den`,
-//!   but only if that reaction is listed in `reactions`. The list is the world's chemistry:
+//!   but only if that reaction is listed in `reactions`. A share `leak_ppm` of the product
+//!   escapes unavoidably: this "leaky function" is what lets others live off a producer
+//!   (the Black Queen mechanism). The list is the world's chemistry:
 //!   mutation may point a convert gene at any pair of resources, yet a pair the world does
 //!   not allow does nothing (and still costs). Without this, one mutation could bypass a
 //!   whole pathway and no dependence between entities could ever pay;
 //! - secrete: release up to `level` of a resource to the site.
 //!
 //! Then the entity dissipates `base_cost + gene_cost * genes` of the energy resource, so
-//! carrying a gene is never free. With `secretion = false` secrete genes are silent but still
-//! cost: this is null world N1 (no interaction channel).
+//! carrying a gene is never free. `release_to` says where secreted and leaked matter goes:
+//! `"site"` (others can take it up) or `"sink"` (null world N1a: the producer's budget is
+//! unchanged, but nothing is transferred to anyone).
 use crate::{invalid, params, resource_index};
 use lab_core::config::RuleCfg;
 use lab_core::{Delta, GeneKind, Holder, LabError, Rule, SiteIndex, State, SENSE_ALWAYS};
@@ -31,9 +34,17 @@ struct Params {
     gene_cost: u64,
     yield_num: u32,
     yield_den: u32,
-    /// Allowed conversions as `[from, to]` pairs of resource names.
-    reactions: Vec<[String; 2]>,
-    secretion: bool,
+    /// The conversions this world allows.
+    reactions: Vec<Reaction>,
+    release_to: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Reaction {
+    from: String,
+    to: String,
+    leak_ppm: u32,
 }
 
 pub struct Metabolism {
@@ -43,9 +54,9 @@ pub struct Metabolism {
     gene_cost: u64,
     yield_num: u32,
     yield_den: u32,
-    /// `allowed[from * k + to]`
-    allowed: Vec<bool>,
-    secretion: bool,
+    /// `leak[from * k + to]`: the leak of an allowed reaction, `None` if the world forbids it.
+    leak: Vec<Option<u32>>,
+    to_sink: bool,
 }
 
 impl Metabolism {
@@ -55,23 +66,33 @@ impl Metabolism {
             return Err(invalid(cfg, "yield_num / yield_den must be between 0 and 1"));
         }
         let k = resources.len();
-        let mut allowed = vec![false; k * k];
-        for [from, to] in &p.reactions {
-            let (f, t) = (resource_index(cfg, from, resources)? as usize, resource_index(cfg, to, resources)? as usize);
+        let mut leak = vec![None; k * k];
+        for reaction in &p.reactions {
+            let (f, t) = (resource_index(cfg, &reaction.from, resources)? as usize, resource_index(cfg, &reaction.to, resources)? as usize);
             if f == t {
                 return Err(invalid(cfg, "a reaction needs two different resources"));
             }
-            allowed[f * k + t] = true;
+            if reaction.leak_ppm > 1_000_000 {
+                return Err(invalid(cfg, "leak_ppm must be between 0 and 1000000"));
+            }
+            if leak[f * k + t].replace(reaction.leak_ppm).is_some() {
+                return Err(invalid(cfg, "a reaction is listed twice"));
+            }
         }
+        let to_sink = match p.release_to.as_str() {
+            "site" => false,
+            "sink" => true,
+            _ => return Err(invalid(cfg, "release_to must be \"site\" or \"sink\"")),
+        };
         Ok(Metabolism {
-            allowed,
+            leak,
             stream: cfg.stream,
             energy: resource_index(cfg, &p.energy, resources)?,
             base_cost: p.base_cost,
             gene_cost: p.gene_cost,
             yield_num: p.yield_num,
             yield_den: p.yield_den,
-            secretion: p.secretion,
+            to_sink,
         })
     }
 }
@@ -81,7 +102,7 @@ impl Rule for Metabolism {
         ID
     }
     fn version(&self) -> u32 {
-        1
+        2
     }
     fn stream(&self) -> u16 {
         self.stream
@@ -99,7 +120,7 @@ impl Rule for Metabolism {
             queue.sort_unstable();
             for &(_, _, entity) in &queue {
                 let genome = &state.genomes[entity as usize];
-                for gene in genome {
+                for (position, gene) in genome.iter().enumerate() {
                     if gene.sense != SENSE_ALWAYS && stock[gene.sense as usize] < u64::from(gene.threshold) {
                         continue;
                     }
@@ -108,19 +129,28 @@ impl Rule for Metabolism {
                         GeneKind::Uptake => {
                             out.push(Delta::Transfer { from: Holder::Site(site), to: Holder::Entity(entity), resource: u16::from(gene.a), amount })
                         }
-                        GeneKind::Convert if !self.allowed[gene.a as usize * state.k + gene.b as usize] => {}
-                        GeneKind::Convert => out.push(Delta::Convert {
-                            entity,
-                            from: u16::from(gene.a),
-                            to: u16::from(gene.b),
-                            amount,
-                            yield_num: self.yield_num,
-                            yield_den: self.yield_den,
-                        }),
-                        GeneKind::Secrete if self.secretion => {
-                            out.push(Delta::Transfer { from: Holder::Entity(entity), to: Holder::Site(site), resource: u16::from(gene.a), amount })
+                        GeneKind::Convert => {
+                            let Some(leak_ppm) = self.leak[gene.a as usize * state.k + gene.b as usize] else {
+                                continue;
+                            };
+                            let id = state.entities[entity as usize].id;
+                            let leak_draw = if leak_ppm == 0 { 0 } else { rng.draw(tick, id, 1 + position as u16)[0] };
+                            out.push(Delta::Convert {
+                                entity,
+                                from: u16::from(gene.a),
+                                to: u16::from(gene.b),
+                                amount,
+                                yield_num: self.yield_num,
+                                yield_den: self.yield_den,
+                                leak_ppm,
+                                leak_draw,
+                                leak_to_sink: self.to_sink,
+                            })
                         }
-                        GeneKind::Secrete => {}
+                        GeneKind::Secrete => {
+                            let to = if self.to_sink { Holder::Sink } else { Holder::Site(site) };
+                            out.push(Delta::Transfer { from: Holder::Entity(entity), to, resource: u16::from(gene.a), amount })
+                        }
                     }
                 }
                 let cost = self.base_cost.saturating_add(self.gene_cost.saturating_mul(genome.len() as u64));

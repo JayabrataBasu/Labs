@@ -4,7 +4,7 @@ use lab_rng::{below, RuleRng, STREAM_INIT};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 pub const MAX_RESOURCES: usize = 16;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -34,10 +34,18 @@ pub struct InitCfg {
     pub site_stock: Vec<u64>,
     /// Rectangles of extra resource added on top of `site_stock`; may be empty.
     pub patches: Vec<PatchCfg>,
-    pub entities: u64,
-    /// Initial stock of each resource in every entity.
-    pub entity_stock: Vec<u64>,
-    /// The genome every founder starts with; may be empty.
+    /// The initial population, one entry per founder type; may be empty.
+    pub founders: Vec<FounderCfg>,
+}
+
+/// `count` identical founders. Entities are numbered in the order the types are listed.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FounderCfg {
+    pub count: u64,
+    /// Initial stock of each resource in every founder of this type.
+    pub stock: Vec<u64>,
+    /// Their genome; may be empty.
     pub genome: Vec<GeneCfg>,
 }
 
@@ -123,11 +131,16 @@ pub fn parse(text: &str) -> Result<(Config, [u8; 32]), LabError> {
     if cfg.init.site_stock.len() != k {
         return bad(format!("init.site_stock has {} values but there are {k} resources", cfg.init.site_stock.len()));
     }
-    if cfg.init.entity_stock.len() != k {
-        return bad(format!("init.entity_stock has {} values but there are {k} resources", cfg.init.entity_stock.len()));
+    let mut population = 0u64;
+    for (i, founder) in cfg.init.founders.iter().enumerate() {
+        if founder.stock.len() != k {
+            return bad(format!("init.founders[{i}].stock has {} values but there are {k} resources", founder.stock.len()));
+        }
+        resolve_genome(&founder.genome, &cfg.world.resources).map_err(|e| LabError::Config(format!("init.founders[{i}].genome: {e}")))?;
+        population = population.saturating_add(founder.count);
     }
-    if cfg.init.entities > u64::from(u32::MAX) {
-        return bad("init.entities is too large".into());
+    if population > u64::from(u32::MAX) {
+        return bad("init.founders: the population is too large".into());
     }
     for (i, rule) in cfg.rules.iter().enumerate() {
         if rule.stream == STREAM_INIT {
@@ -138,7 +151,6 @@ pub fn parse(text: &str) -> Result<(Config, [u8; 32]), LabError> {
         }
     }
     Topology::lattice(cfg.world.width, cfg.world.height, cfg.world.wrap)?;
-    resolve_genome(&cfg.init.genome, &cfg.world.resources).map_err(|e| LabError::Config(format!("init.genome: {e}")))?;
     for (i, patch) in cfg.init.patches.iter().enumerate() {
         resource_index(&patch.resource, &cfg.world.resources).map_err(|e| LabError::Config(format!("init.patches[{i}]: {e}")))?;
         let fits = |start: u32, len: u32, limit: u32| len > 0 && start.checked_add(len).is_some_and(|end| end <= limit);
@@ -154,7 +166,6 @@ pub fn initial_state(cfg: &Config) -> Result<State, LabError> {
     let topo = Topology::lattice(cfg.world.width, cfg.world.height, cfg.world.wrap)?;
     let n_sites = topo.n_sites();
     let k = cfg.world.resources.len();
-    let n_entities = cfg.init.entities as usize;
     let mut site_stock = cfg.init.site_stock.repeat(n_sites as usize);
     for patch in &cfg.init.patches {
         let r = resource_index(&patch.resource, &cfg.world.resources)? as usize;
@@ -165,11 +176,16 @@ pub fn initial_state(cfg: &Config) -> Result<State, LabError> {
             }
         }
     }
-    let genome = resolve_genome(&cfg.init.genome, &cfg.world.resources)?;
-    let ent_stock = cfg.init.entity_stock.repeat(n_entities);
     let rng = RuleRng { seed: cfg.seed, stream: STREAM_INIT };
-    let entities = (0..cfg.init.entities)
-        .map(|id| EntityMeta { id, site: below(rng.draw(0, id, 0)[0], n_sites), parent: None, mother: None, born: 0 })
-        .collect();
-    State::with_genomes(topo, k, site_stock, entities, ent_stock, vec![genome; n_entities])
+    let (mut entities, mut ent_stock, mut genomes) = (Vec::new(), Vec::new(), Vec::new());
+    for founder in &cfg.init.founders {
+        let genome = resolve_genome(&founder.genome, &cfg.world.resources)?;
+        for _ in 0..founder.count {
+            let id = entities.len() as u64;
+            entities.push(EntityMeta { id, site: below(rng.draw(0, id, 0)[0], n_sites), parent: None, mother: None, born: 0 });
+            ent_stock.extend_from_slice(&founder.stock);
+            genomes.push(genome.clone());
+        }
+    }
+    State::with_genomes(topo, k, site_stock, entities, ent_stock, genomes)
 }

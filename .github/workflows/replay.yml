@@ -4,7 +4,7 @@ name: replay
 
 on:
   push:
-    branches: [master, m2-evolution]
+    branches: [master, "m*", studio]
   pull_request:
     branches: [master]
 
@@ -27,16 +27,22 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test
         run: cargo test --workspace --release --locked
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Python experiment layer tests
-        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        env:
+          PYTHONPATH: python
         run: |
           cargo build --release --locked -p lab-cli
-          PYTHONPATH=python python3 -m unittest discover -s python/tests -v
+          if [ -f target/release/lab.exe ]; then export LAB_BIN="$PWD/target/release/lab.exe"; fi
+          python -m unittest discover -s python/tests -v
       - name: Replay pinned worlds
         shell: bash
         run: |
           # name:ticks pairs; each config has a pinned hash in configs/<name>.sha256 (DR-013).
-          for spec in reference:2000 crossfeed:1500; do
+          for spec in reference:2000 crossfeed:1500 blackqueen:600 positive-control:600 negative-control:600; do
             name="${spec%%:*}"; ticks="${spec##*:}"
             expected="$(tr -d '[:space:]' < "configs/$name.sha256")"
             for threads in 1 4; do

@@ -24,7 +24,7 @@ design and the analysis plan cannot change after outcomes have been seen without
     transforms = [{ name = "null.no_secretion" }]
 
     [[sweeps]]                                   # full factorial over all sweeps
-    path = "rules.5.params.divisor"              # rules.<stream>.params.<key>, or init.entities, world.wrap ...
+    path = "rules.5.params.divisor"              # rules.<stream>.params.<key>, init.founders.0.count, world.wrap ...
     values = [10, 20, 40]
 """
 import copy
@@ -64,27 +64,28 @@ def load(spec_path):
 
 
 def set_path(cfg, path, value):
-    """Sets `rules.<stream>.params.<key>` or a dotted path into the config, failing if it does not exist."""
+    """Sets one existing setting, failing if it does not exist. Paths are dotted:
+    `rules.<stream>.params.<key>[.<index>...]`, `init.founders.<index>.count`, `world.wrap`, ..."""
     parts = path.split(".")
-    node = cfg
-    i = 0
-    while i < len(parts) - 1:
-        part = parts[i]
-        if part == "rules" and i == 0:
-            stream = int(parts[1])
-            matches = [r for r in cfg["rules"] if r["stream"] == stream]
-            if len(matches) != 1:
-                raise ValueError(f"sweep path {path!r}: no rule with stream {stream}")
-            node = matches[0]
-            i += 2
-            continue
-        if part not in node:
-            raise ValueError(f"sweep path {path!r}: {part!r} does not exist")
-        node = node[part]
-        i += 1
-    if parts[-1] not in node:
-        raise ValueError(f"sweep path {path!r}: {parts[-1]!r} does not exist (a sweep may only change existing settings)")
-    node[parts[-1]] = value
+    node, i = cfg, 0
+    if parts[0] == "rules":
+        matches = [r for r in cfg["rules"] if len(parts) > 2 and str(r["stream"]) == parts[1]]
+        if len(matches) != 1:
+            raise ValueError(f"sweep path {path!r}: no rule with that stream")
+        node, i = matches[0], 2
+
+    def step(node, part):
+        if isinstance(node, list):
+            if not part.isdigit() or int(part) >= len(node):
+                raise ValueError(f"sweep path {path!r}: no list element {part!r}")
+            return int(part)
+        if not isinstance(node, dict) or part not in node:
+            raise ValueError(f"sweep path {path!r}: {part!r} does not exist (a sweep may only change existing settings)")
+        return part
+
+    for part in parts[i:-1]:
+        node = node[step(node, part)]
+    node[step(node, parts[-1])] = value
 
 
 def expand(spec, base_cfg):

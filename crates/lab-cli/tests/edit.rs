@@ -142,6 +142,7 @@ fn edits_made_in_the_page_reach_the_file() {
     cfg["world"]["width"] = 20.into();
     cfg["world"]["height"] = 12.into();
     cfg["seed"] = "18446744073709551615".into();
+    cfg["init"]["founders"][0]["count"] = 7.into();
     cfg["init"]["patches"] = serde_json::json!([{ "x": 2, "y": 3, "width": 4, "height": 5, "resource": "A", "amount": 77 }]);
     cfg["rules"].as_array_mut().unwrap().push(serde_json::json!({
         "id": "shock.scheduled", "version": 1, "stream": 99,
