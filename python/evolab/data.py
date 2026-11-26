@@ -6,7 +6,7 @@ from typing import NamedTuple
 
 
 class Gene(NamedTuple):
-    kind: str  # "uptake", "convert" or "secrete"
+    kind: str  # "uptake", "convert", "secrete" or "bind"
     a: int  # resource index (source, for convert)
     b: int  # resource index (product, for convert)
     sense: int | None  # gating resource, None = always on
@@ -30,6 +30,7 @@ class Entity(NamedTuple):
     born: int
     stocks: tuple
     genome: tuple
+    host: int | None = None  # id of the entity that contains this one
 
 
 class Window(NamedTuple):
@@ -69,7 +70,8 @@ def read_entities(path):
                 cache[text] = tuple(parse_genome(text))
             stocks = tuple(int(row[k]) for k in row if k.startswith("stock_"))
             mother = int(row["mother"]) if row["mother"] else None
-            out[int(row["id"])] = Entity(int(row["id"]), int(row["site"]), mother, int(row["born"]), stocks, cache[text])
+            host = int(row["host"]) if row.get("host") else None
+            out[int(row["id"])] = Entity(int(row["id"]), int(row["site"]), mother, int(row["born"]), stocks, cache[text], host)
     return out
 
 

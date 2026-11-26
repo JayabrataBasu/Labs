@@ -69,8 +69,8 @@ fn page_and_catalog_are_served() {
     assert_eq!(status, 200);
     let catalog: serde_json::Value = serde_json::from_str(&body).unwrap();
     let ids: Vec<&str> = catalog.as_array().unwrap().iter().map(|c| c["id"].as_str().unwrap()).collect();
-    assert_eq!(ids.len(), 14);
-    for id in ["metabolism.genes", "shock.scheduled", "reproduction.division", "mix.relocate"] {
+    assert_eq!(ids.len(), 18);
+    for id in ["metabolism.genes", "shock.scheduled", "reproduction.division", "mix.relocate", "containment.bind", "containment.partition"] {
         assert!(ids.contains(&id), "{id} missing from the catalog");
     }
     assert_eq!(get(ed.1, "/nope").0, 404);

@@ -37,6 +37,27 @@ def partition(fitness, trait, group_sets):
     return {"selection": selection / mean_w, "between": between / mean_w, "within": within / mean_w}
 
 
+def between_share(fitness, units):
+    """Share of the fitness variance among members of multi-member units that lies between units.
+
+    Under random assignment of the same unit sizes its expectation is exactly (g - 1) / (n - 1) for g
+    units and n members, so `excess` over that is zero when units do not matter. None if there are
+    fewer than two units or no variance.
+    """
+    kept = [[fitness[i] for i in sorted(u) if i in fitness] for u in units]
+    kept = [u for u in kept if len(u) >= 2]
+    values = [w for u in kept for w in u]
+    if len(kept) < 2:
+        return None
+    mean = sum(values) / len(values)
+    total = sum((w - mean) ** 2 for w in values)
+    if total == 0:
+        return None
+    between = sum(len(u) * (sum(u) / len(u) - mean) ** 2 for u in kept)
+    share = between / total
+    return {"share": share, "excess": share - (len(kept) - 1) / (len(values) - 1)}
+
+
 def window_fitness(window):
     """Fitness of every entity alive at the start of an observation window."""
     alive = set(window.entities_end)

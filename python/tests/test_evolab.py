@@ -89,6 +89,35 @@ class Transforms(unittest.TestCase):
             transforms.apply(bare, [{"name": "null.no_secretion"}])
 
 
+class ContainmentNulls(unittest.TestCase):
+    def setUp(self):
+        self.base = json.loads(json.dumps(CROSSFEED))
+        metabolism = [r for r in self.base["rules"] if r["id"] == "metabolism.genes"][0]
+        metabolism["params"]["guests_trade_with"] = "host"
+        self.base["rules"] += [
+            {"id": "containment.share", "version": 1, "stream": 40, "params": {"resources": ["E"], "divisor": 4}},
+            {"id": "containment.partition", "version": 1, "stream": 41, "params": {"probability_ppm": 1, "mode": "lineage", "max_guests": 2}},
+        ]
+
+    def params(self, cfg, id_):
+        return [r["params"] for r in cfg["rules"] if r["id"] == id_]
+
+    def test_no_sharing_cuts_both_exchange_routes_between_guest_and_host(self):
+        out = transforms.apply(self.base, [{"name": "null.no_sharing"}])
+        self.assertEqual(self.params(out, "containment.share"), [])
+        self.assertEqual(self.params(out, "metabolism.genes")[0]["guests_trade_with"], "site")
+        self.assertEqual(self.params(out, "containment.partition"), self.params(self.base, "containment.partition"))
+        with self.assertRaises(ValueError):
+            transforms.apply(CROSSFEED, [{"name": "null.no_sharing"}])
+
+    def test_random_partition_changes_only_the_mode(self):
+        out = transforms.apply(self.base, [{"name": "null.random_partition"}])
+        self.assertEqual(self.params(out, "containment.partition")[0], {"probability_ppm": 1, "mode": "random", "max_guests": 2})
+        self.assertEqual(self.params(self.base, "containment.partition")[0]["mode"], "lineage")
+        with self.assertRaises(ValueError):
+            transforms.apply(CROSSFEED, [{"name": "null.random_partition"}])
+
+
 class Specs(unittest.TestCase):
     def make(self, extra="", seeds="[1001, 1002, 1003]"):
         d = Path(tempfile.mkdtemp())

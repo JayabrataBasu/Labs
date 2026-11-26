@@ -5,7 +5,7 @@ use crate::{LabError, Topology};
 pub struct EntityMeta {
     pub id: u64,
     pub site: u32,
-    /// Containment slot reserved by DR-011. Always `None` until the fusion module (M5).
+    /// Id of the entity that contains this one (DR-022). The host is free and on the same site.
     pub parent: Option<u64>,
     /// Id of the entity this one was born from; `None` for founders. Lineage only, never read by rules.
     pub mother: Option<u64>,
@@ -23,15 +23,17 @@ pub enum GeneKind {
     Convert = 1,
     /// Release resource `a` to the site.
     Secrete = 2,
+    /// Willingness to take part in containment with others carrying the same tag (resource `a`).
+    Bind = 3,
 }
 
 impl GeneKind {
-    pub const ALL: [GeneKind; 3] = [GeneKind::Uptake, GeneKind::Convert, GeneKind::Secrete];
+    pub const ALL: [GeneKind; 4] = [GeneKind::Uptake, GeneKind::Convert, GeneKind::Secrete, GeneKind::Bind];
     pub fn from_u8(v: u8) -> Option<Self> {
         Self::ALL.get(v as usize).copied()
     }
     pub fn name(self) -> &'static str {
-        ["uptake", "convert", "secrete"][self as usize]
+        ["uptake", "convert", "secrete", "bind"][self as usize]
     }
 }
 
@@ -95,6 +97,16 @@ pub struct State {
 }
 
 impl State {
+    /// Index of the entity with this id, if it is alive.
+    pub fn index_of(&self, id: u64) -> Option<usize> {
+        self.entities.binary_search_by_key(&id, |e| e.id).ok()
+    }
+
+    /// Index of the entity that contains entity `index`, if any.
+    pub fn host_of(&self, index: usize) -> Option<usize> {
+        self.entities[index].parent.and_then(|id| self.index_of(id))
+    }
+
     /// Builds a tick-0 state of entities without genes and validates its internal consistency.
     pub fn new(
         topo: Topology,
@@ -171,6 +183,13 @@ impl State {
         if let Some(e) = self.entities.iter().find(|e| e.site as usize >= n) {
             return Err(format!("entity {} is at site {}, but there are only {} sites", e.id, e.site, n));
         }
+        for e in &self.entities {
+            let Some(parent) = e.parent else { continue };
+            let host = self.entities.binary_search_by_key(&parent, |x| x.id).ok().map(|i| &self.entities[i]);
+            if !host.is_some_and(|h| h.parent.is_none() && h.site == e.site) {
+                return Err(format!("entity {} is contained in {parent}, which is not a free entity at the same site", e.id));
+            }
+        }
         if let Some(e) = self.entities.last() {
             if e.id >= self.next_entity_id {
                 return Err("next_entity_id must exceed every existing id".into());
@@ -179,7 +198,6 @@ impl State {
         Ok(())
     }
 
-    /// Total of resource `r` held by all sites and entities.
     /// Removes every entity whose id is not in `keep` (ascending), as an intervention for
     /// counterfactual forks. What they held leaves the system as dissipation, so conservation
     /// still holds, and they are counted as deaths. Returns how many were removed.
@@ -207,10 +225,17 @@ impl State {
             i += 1;
             kept[(i - 1) / k]
         });
+        // Guests whose host was removed are free again.
+        for e in &mut self.entities {
+            if e.parent.is_some_and(|p| keep.binary_search(&p).is_err()) {
+                e.parent = None;
+            }
+        }
         self.deaths = self.deaths.saturating_add(removed as u64);
         removed
     }
 
+    /// Total of resource `r` held by all sites and entities.
     pub fn total(&self, r: usize) -> Result<u64, LabError> {
         let mut sum = 0u64;
         for chunk in self.site_stock.chunks_exact(self.k).chain(self.ent_stock.chunks_exact(self.k)) {

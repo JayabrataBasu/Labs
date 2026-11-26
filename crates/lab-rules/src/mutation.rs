@@ -27,6 +27,9 @@ pub struct MutationParams {
     pub delete_ppm: u32,
     /// Duplication is suppressed once a genome has this many genes.
     pub max_genes: u32,
+    /// Gene kinds that retargeting may turn a gene into. This is part of the world: new kinds of
+    /// function can only arise if listed.
+    pub kinds: Vec<String>,
 }
 
 impl MutationParams {
@@ -34,6 +37,9 @@ impl MutationParams {
         let rates = [self.point_ppm, self.retarget_ppm, self.duplicate_ppm, self.delete_ppm];
         if rates.iter().any(|&r| r > PPM) {
             return Err(LabError::Config("mutation rates are in parts per million and must not exceed 1000000".into()));
+        }
+        if self.kinds.is_empty() || self.kinds.iter().any(|k| kind_named(k).is_none()) {
+            return Err(LabError::Config("mutation.kinds must list gene kinds from uptake, convert, secrete, bind".into()));
         }
         if self.max_genes == 0 || self.max_genes > MAX_GENES_LIMIT {
             return Err(LabError::Config(format!("mutation.max_genes must be between 1 and {MAX_GENES_LIMIT}")));
@@ -44,6 +50,7 @@ impl MutationParams {
     /// The offspring genome of `parent`, born at `tick` to the entity with id `parent_id`. `k` is the number of resources.
     pub fn offspring(&self, parent: &[Gene], rng: RuleRng, tick: u32, parent_id: u64, k: u8) -> Vec<Gene> {
         let hit = |word: u32, rate: u32| below(word, PPM) < rate;
+        let kinds: Vec<GeneKind> = self.kinds.iter().filter_map(|k| kind_named(k)).collect();
         let mut child = Vec::with_capacity(parent.len() + 1);
         for (i, &gene) in parent.iter().enumerate().take(MAX_GENES_LIMIT as usize) {
             let which = rng.draw(tick, parent_id, i as u16);
@@ -59,7 +66,7 @@ impl MutationParams {
                 *field = (i64::from(*field) + step).clamp(0, i64::from(u16::MAX)) as u16;
             }
             if hit(which[3], self.retarget_ppm) {
-                retarget(&mut g, value[2], value[3], k);
+                retarget(&mut g, value[2], value[3], k, &kinds);
             }
             child.push(g);
             // Duplication must leave room for the genes still to come, so the child never exceeds max_genes.
@@ -72,8 +79,12 @@ impl MutationParams {
     }
 }
 
+fn kind_named(name: &str) -> Option<GeneKind> {
+    GeneKind::ALL.into_iter().find(|k| k.name() == name)
+}
+
 /// Changes one identity of a gene, keeping it well-formed.
-fn retarget(g: &mut Gene, choice: u32, value: u32, k: u8) {
+fn retarget(g: &mut Gene, choice: u32, value: u32, k: u8, kinds: &[GeneKind]) {
     let resource = below(value, u32::from(k)) as u8;
     match below(choice, 4) {
         0 => g.a = resource,
@@ -87,7 +98,7 @@ fn retarget(g: &mut Gene, choice: u32, value: u32, k: u8) {
                 g.sense = sensed;
             }
         }
-        _ => g.kind = GeneKind::ALL[below(value, 3) as usize],
+        _ => g.kind = kinds[below(value, kinds.len() as u32) as usize],
     }
     if g.kind == GeneKind::Convert {
         if g.a == g.b {

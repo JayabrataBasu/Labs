@@ -175,6 +175,29 @@ class Forks(unittest.TestCase):
         self.assertEqual(counterfactual.score({"results": []})["synergy"], None)
 
 
+class Hosts(unittest.TestCase):
+    def test_between_unit_share_of_fitness_variance_against_its_chance_value(self):
+        units = [{1, 2}, {3, 4}, {5}]  # a unit of one is not a host
+        s = price.between_share({1: 2.0, 2: 2.0, 3: 0.0, 4: 0.0, 5: 9.0}, units)
+        self.assertEqual(s["share"], 1.0)
+        self.assertAlmostEqual(s["excess"], 1.0 - 1 / 3)  # chance: (units - 1) / (members - 1)
+        s = price.between_share({1: 2.0, 2: 0.0, 3: 2.0, 4: 0.0, 5: 9.0}, units)
+        self.assertEqual(s["share"], 0.0)
+        self.assertAlmostEqual(s["excess"], -1 / 3)
+        self.assertIsNone(price.between_share({1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0}, units[:2]))  # no variance
+        self.assertIsNone(price.between_share({1: 1.0, 2: 0.0}, units[:1]))  # one unit
+
+    def test_host_measures_from_the_entity_table(self):
+        g = [tuple(genome(x)) for x in (NEEDS_B, NEEDS_C, FULL)]
+        e = lambda i, genes, host=None: data.Entity(i, 0, None, 0, (), genes, host)
+        ents = {1: e(1, g[0]), 2: e(2, g[1], 1), 3: e(3, g[2]), 4: e(4, g[2], 3), 5: e(5, g[2])}
+        self.assertEqual(metrics.host_units(ents), [{1, 2}, {3, 4}])
+        m = metrics.host_composition(ents, CHEM)
+        self.assertEqual((m["hosted_fraction"], m["hosts"], m["host_reciprocal"]), (0.4, 2, 0.5))
+        none = metrics.host_composition({5: e(5, g[2])}, CHEM)
+        self.assertEqual((none["hosted_fraction"], none["host_reciprocal"]), (0.0, None))
+
+
 class Price(unittest.TestCase):
     def test_partition_is_exact(self):
         w = {1: 2.0, 2: 0.0, 3: 3.0, 4: 1.0, 5: 1.0}

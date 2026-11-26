@@ -131,7 +131,7 @@ function renderStocks() {
 function geneCard(g, f, i) {
   const two = g.kind === 'convert';
   return `<div class="card" data-gene="${f}:${i}"><div class="row">
-    <label>Kind<select data-f="kind"><option ${g.kind === 'uptake' ? 'selected' : ''}>uptake</option><option ${two ? 'selected' : ''}>convert</option><option ${g.kind === 'secrete' ? 'selected' : ''}>secrete</option></select></label>
+    <label>Kind<select data-f="kind"><option ${g.kind === 'uptake' ? 'selected' : ''}>uptake</option><option ${two ? 'selected' : ''}>convert</option><option ${g.kind === 'secrete' ? 'selected' : ''}>secrete</option><option ${g.kind === 'bind' ? 'selected' : ''}>bind</option></select></label>
     ${two ? `<label>From<select data-f="from">${resOptions(g.from)}</select></label><label>To<select data-f="to">${resOptions(g.to)}</select></label>`
           : `<label>Resource<select data-f="resource">${resOptions(g.resource)}</select></label>`}
     <label>Level<input type="number" min="0" max="65535" data-f="level" value="${g.level}"></label>

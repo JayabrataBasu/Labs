@@ -100,6 +100,9 @@ impl Rule for Relocate {
         let n_sites = state.topo.n_sites();
         for site in sites {
             for &entity in index.at(site) {
+                if state.entities[entity as usize].parent.is_some() {
+                    continue; // carried by its host
+                }
                 let draw = rng.draw(tick, state.entities[entity as usize].id, 0);
                 if below(draw[0], PPM) < self.probability_ppm {
                     out.push(Delta::Relocate { entity, to: below(draw[1], n_sites) });

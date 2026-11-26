@@ -68,6 +68,8 @@ pub enum GeneCfg {
     Uptake { resource: String, level: u16, sense: String, threshold: u16 },
     Convert { from: String, to: String, level: u16, sense: String, threshold: u16 },
     Secrete { resource: String, level: u16, sense: String, threshold: u16 },
+    /// `resource` is only a tag: entities bind others whose bind gene carries the same one.
+    Bind { resource: String, level: u16, sense: String, threshold: u16 },
 }
 
 /// Index of a named resource.
@@ -84,6 +86,7 @@ pub fn resolve_genome(genes: &[GeneCfg], resources: &[String]) -> Result<Vec<Gen
                 GeneCfg::Uptake { resource, level, sense, threshold } => (GeneKind::Uptake, resource, resource, level, sense, threshold),
                 GeneCfg::Convert { from, to, level, sense, threshold } => (GeneKind::Convert, from, to, level, sense, threshold),
                 GeneCfg::Secrete { resource, level, sense, threshold } => (GeneKind::Secrete, resource, resource, level, sense, threshold),
+                GeneCfg::Bind { resource, level, sense, threshold } => (GeneKind::Bind, resource, resource, level, sense, threshold),
             };
             let (a, b) = (resource_index(a, resources)?, resource_index(b, resources)?);
             if kind == GeneKind::Convert && a == b {

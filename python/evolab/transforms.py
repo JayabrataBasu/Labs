@@ -14,7 +14,14 @@ N2 null.well_mixed    - entities are scattered over the whole lattice every tick
 N3 null.neutral       - reproduction and death no longer depend on what genes achieve. Rates must be
                         given explicitly (matched to the intact arm's demography by the experimenter).
 N5 null.no_mutation   - every mutation rate is zero: no heritable variation.
-N4 (spatially shuffled detector input) is an analysis-level control and arrives with the detector (M4).
+N4 (spatially shuffled detector input) is an analysis-level control (see metrics.py).
+
+Containment nulls (DR-022):
+null.no_sharing       - hosts and guests exchange nothing while alive: no containment.share, and guests
+                        trade with the site. Containment then only ties positions together. One channel
+                        remains: a dead guest's stocks still return to its host.
+null.random_partition - at host division guests are re-assigned to random eligible hosts on the site,
+                        so the association is not inherited.
 """
 import copy
 
@@ -86,7 +93,28 @@ def no_mutation(cfg, **_):
     return cfg
 
 
+def no_sharing(cfg, **_):
+    cfg = copy.deepcopy(cfg)
+    _need(cfg, "metabolism.genes", "to make guests trade with the site")
+    containment = [r for r in cfg["rules"] if r["id"].startswith("containment.")]
+    if not containment:
+        raise ValueError("null.no_sharing needs a containment rule")
+    cfg["rules"] = [r for r in cfg["rules"] if r["id"] != "containment.share"]
+    for rule in _rules(cfg, "metabolism.genes"):
+        rule["params"]["guests_trade_with"] = "site"
+    return cfg
+
+
+def random_partition(cfg, **_):
+    cfg = copy.deepcopy(cfg)
+    for rule in _need(cfg, "containment.partition", "to randomise it"):
+        rule["params"]["mode"] = "random"
+    return cfg
+
+
 REGISTRY = {
+    "null.no_sharing": no_sharing,
+    "null.random_partition": random_partition,
     "null.no_secretion": no_secretion,
     "null.no_recycling": no_recycling,
     "null.well_mixed": well_mixed,

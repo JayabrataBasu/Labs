@@ -23,9 +23,9 @@ pub enum Delta {
     Transfer { from: Holder, to: Holder, resource: u16, amount: u64 },
     /// Inside one entity, consume up to `amount` of `from` and produce
     /// `floor(consumed * yield_num / yield_den)` of `to`. Requires `yield_num <= yield_den`, `yield_den > 0`.
-    /// Of that product, a share `leak_ppm` escapes at once (see [`leaked_amount`]): to the entity's
-    /// site, or out of the system when `leak_to_sink`.
-    Convert { entity: u32, from: u16, to: u16, amount: u64, yield_num: u32, yield_den: u32, leak_ppm: u32, leak_draw: u32, leak_to_sink: bool },
+    /// Of that product, a share `leak_ppm` escapes at once (see [`leaked_amount`]) to `leak_to`:
+    /// the entity's site, another holder at that site (its host), or the sink.
+    Convert { entity: u32, from: u16, to: u16, amount: u64, yield_num: u32, yield_den: u32, leak_ppm: u32, leak_draw: u32, leak_to: Holder },
     /// Relocate an entity to a site adjacent to its current one.
     Move { entity: u32, to: u32 },
     /// Relocate an entity to any site (used by well-mixed control worlds).
@@ -34,8 +34,14 @@ pub enum Delta {
     /// leaves the system as dissipation.
     Remove { entity: u32, recycle: bool },
     /// The parent divides: the offspring appears at the parent's site with half of each of
-    /// the parent's stocks (rounded down) and the given genome.
+    /// the parent's stocks (rounded down) and the given genome. The offspring of a contained
+    /// entity is contained in the same host.
     Spawn { parent: u32, genome: Vec<Gene> },
+    /// `guest` becomes contained in `host`, which must be a free entity at the same site. A guest
+    /// that already has a host moves to the new one. An entity that has guests cannot be a guest.
+    Attach { guest: u32, host: u32 },
+    /// A contained entity becomes free.
+    Detach { guest: u32 },
 }
 
 /// How much of `produced` leaks at `leak_ppm` parts per million. The whole part always leaks;

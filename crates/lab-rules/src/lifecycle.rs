@@ -43,6 +43,43 @@ fn check_ppm(cfg: &RuleCfg, ppm: u32) -> Result<(), LabError> {
     Ok(())
 }
 
+/// Places left for offspring at one site. `site_capacity` bounds the free entities on a site and,
+/// separately, the guests inside each host (guests take no room on the site itself).
+struct Room {
+    free: usize,
+    capacity: usize,
+    /// `(host id, guests it has, counting offspring proposed now)`, in order of first appearance.
+    guests: Vec<(u64, usize)>,
+}
+
+impl Room {
+    fn new(state: &State, residents: &[u32], capacity: u32) -> Self {
+        let capacity = capacity as usize;
+        let mut guests: Vec<(u64, usize)> = Vec::new();
+        let mut contained = 0;
+        for host in residents.iter().filter_map(|&e| state.entities[e as usize].parent) {
+            contained += 1;
+            match guests.iter_mut().find(|g| g.0 == host) {
+                Some(g) => g.1 += 1,
+                None => guests.push((host, 1)),
+            }
+        }
+        Room { free: capacity.saturating_sub(residents.len() - contained), capacity, guests }
+    }
+    fn available(&self, state: &State, entity: usize) -> bool {
+        match state.entities[entity].parent {
+            None => self.free > 0,
+            Some(host) => self.guests.iter().any(|g| g.0 == host && g.1 < self.capacity),
+        }
+    }
+    fn take(&mut self, state: &State, entity: usize) {
+        match state.entities[entity].parent {
+            None => self.free -= 1,
+            Some(host) => self.guests.iter_mut().filter(|g| g.0 == host).for_each(|g| g.1 += 1),
+        }
+    }
+}
+
 // ---- reproduction.division ----------------------------------------------------------------
 
 pub const DIVISION_ID: &str = "reproduction.division";
@@ -102,16 +139,16 @@ impl Rule for Division {
         let tick = state.tick as u32;
         for site in sites {
             let residents = index.at(site);
-            let mut room = (self.site_capacity as usize).saturating_sub(residents.len());
+            let mut room = Room::new(state, residents, self.site_capacity);
             for &entity in residents {
-                if room == 0 {
-                    break;
-                }
                 let e = entity as usize;
+                if !room.available(state, e) {
+                    continue;
+                }
                 if self.requires.iter().all(|&(r, threshold)| state.ent_stock[e * state.k + r] >= threshold) {
                     let genome = self.mutation.offspring(&state.genomes[e], rng, tick, state.entities[e].id, state.k as u8);
                     out.push(Delta::Spawn { parent: entity, genome });
-                    room -= 1;
+                    room.take(state, e);
                 }
             }
         }
@@ -152,17 +189,17 @@ impl Rule for RandomBirth {
         let tick = state.tick as u32;
         for site in sites {
             let residents = index.at(site);
-            let mut room = (self.site_capacity as usize).saturating_sub(residents.len());
+            let mut room = Room::new(state, residents, self.site_capacity);
             for &entity in residents {
-                if room == 0 {
-                    break;
-                }
                 let e = entity as usize;
+                if !room.available(state, e) {
+                    continue;
+                }
                 let id = state.entities[e].id;
                 if below(rng.draw(tick, id, DECISION)[0], PPM) < self.probability_ppm {
                     let genome = self.mutation.offspring(&state.genomes[e], rng, tick, id, state.k as u8);
                     out.push(Delta::Spawn { parent: entity, genome });
-                    room -= 1;
+                    room.take(state, e);
                 }
             }
         }

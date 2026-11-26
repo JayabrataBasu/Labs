@@ -150,7 +150,7 @@ pub fn execute(
 
 /// Column names of `series.csv`. Everything is an exact integer; ratios are left to analysis.
 fn series_header(resources: &[String]) -> String {
-    let mut header = String::from("tick,entities,births,deaths,distinct_genomes,genes,uptake_genes,convert_genes,secrete_genes");
+    let mut header = String::from("tick,entities,births,deaths,distinct_genomes,genes,uptake_genes,convert_genes,secrete_genes,bind_genes,contained");
     for name in resources {
         header += &format!(",site_{name},entity_{name},influx_{name},dissipated_{name},converted_in_{name},converted_out_{name}");
     }
@@ -158,7 +158,7 @@ fn series_header(resources: &[String]) -> String {
 }
 
 fn series_row(text: &mut String, state: &State) {
-    let mut kinds = [0u64; 3];
+    let mut kinds = [0u64; 4];
     for gene in state.genomes.iter().flatten() {
         kinds[gene.kind as usize] += 1;
     }
@@ -166,7 +166,7 @@ fn series_row(text: &mut String, state: &State) {
     genomes.sort_unstable_by_key(|g| g.iter().map(|x| (x.kind as u8, x.a, x.b, x.sense, x.level, x.threshold)).collect::<Vec<_>>());
     genomes.dedup();
     *text += &format!(
-        "{},{},{},{},{},{},{},{},{}",
+        "{},{},{},{},{},{},{},{},{},{},{}",
         state.tick,
         state.entities.len(),
         state.births,
@@ -175,7 +175,9 @@ fn series_row(text: &mut String, state: &State) {
         kinds.iter().sum::<u64>(),
         kinds[0],
         kinds[1],
-        kinds[2]
+        kinds[2],
+        kinds[3],
+        state.entities.iter().filter(|e| e.parent.is_some()).count()
     );
     for r in 0..state.k {
         let on_sites: u128 = state.site_stock.iter().skip(r).step_by(state.k).map(|&x| u128::from(x)).sum();
@@ -189,14 +191,15 @@ fn series_row(text: &mut String, state: &State) {
 /// One CSV row per entity: identity, lineage, stocks and genome.
 /// Genome syntax: genes separated by `;`, each `kind:a>b@sense>=threshold*level` with resource indices.
 pub fn entity_table(state: &State) -> String {
-    let mut text = String::from("id,site,x,y,mother,born,genes");
+    let mut text = String::from("id,site,x,y,mother,born,host,genes");
     for r in 0..state.k {
         text += &format!(",stock_{r}");
     }
     text += ",genome\n";
     for (i, e) in state.entities.iter().enumerate() {
         let mother = e.mother.map_or(String::new(), |m| m.to_string());
-        text += &format!("{},{},{},{},{},{},{}", e.id, e.site, e.site % state.topo.width, e.site / state.topo.width, mother, e.born, state.genomes[i].len());
+        let host = e.parent.map_or(String::new(), |p| p.to_string());
+        text += &format!("{},{},{},{},{},{},{host},{}", e.id, e.site, e.site % state.topo.width, e.site / state.topo.width, mother, e.born, state.genomes[i].len());
         for r in 0..state.k {
             text += &format!(",{}", state.ent_stock[i * state.k + r]);
         }

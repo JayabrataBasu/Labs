@@ -49,6 +49,9 @@ impl Rule for Movement {
                 continue;
             }
             for &entity in index.at(site) {
+                if state.entities[entity as usize].parent.is_some() {
+                    continue; // carried by its host
+                }
                 let draw = rng.draw(tick, state.entities[entity as usize].id, 0);
                 if below(draw[0], PPM) < self.probability_ppm {
                     let to = neighbours[below(draw[1], neighbours.len() as u32) as usize];

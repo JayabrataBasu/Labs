@@ -12,15 +12,19 @@
 //!    from another site.
 //! 5. Conversions happen inside one entity and are immediate. A leaking share of the product
 //!    goes at once to the entity's own site (or to the sink).
-//! 6. Moves and relocations take effect next, in proposal order.
+//! 6. Moves and relocations take effect next, in proposal order. Contained entities cannot move
+//!    by themselves; they are carried to their host's site. Then attachments and detachments
+//!    take effect, in proposal order.
 //! 7. Deaths and births take effect last, in proposal order. A removed entity returns what
-//!    it holds to its site (`recycle`) or dissipates it; an entity removed earlier in the same
-//!    step cannot divide.
+//!    it holds to its host if it has a living one, else to its site (`recycle`), or dissipates
+//!    it; an entity removed earlier in the same step cannot divide. Guests of a removed host
+//!    become free.
 //!
 //! Sites therefore never read each other's stocks while a rule is applied, which is what
 //! lets blocks of sites be processed on different threads with identical results.
 use crate::{leaked_amount, Birth, Death, Delta, EntityMeta, Flow, Gene, Holder, LabError, Observation, SiteIndex, State};
 use rayon::prelude::*;
+use std::collections::BTreeMap;
 use std::ops::Range;
 
 /// What a block of sites hands back for the ordered finishing pass.
@@ -35,6 +39,12 @@ struct BlockOut {
     converted_out: Vec<u64>,
     /// What moved, if anyone is watching.
     flows: Vec<Flow>,
+    containment: Vec<Containment>,
+}
+
+enum Containment {
+    Attach { guest: u32, host: u32 },
+    Detach(u32),
 }
 
 enum Life {
@@ -112,6 +122,7 @@ fn process_block(ctx: &Context, block: Block) -> Result<BlockOut, LabError> {
         converted_in: zero(),
         converted_out: zero(),
         flows: Vec::new(),
+        containment: Vec::new(),
     };
     let outside = || LabError::Config("a delta's home site lies outside the site range the rule was asked to cover".into());
     // An entity-directed delta is at home in this block if the entity currently sits at one of its sites.
@@ -136,11 +147,23 @@ fn process_block(ctx: &Context, block: Block) -> Result<BlockOut, LabError> {
                 at_home(entity)?;
                 out.life.push(Life::Remove(entity, recycle));
             }
+            Delta::Attach { guest, host } => {
+                at_home(guest)?;
+                at_home(host)?;
+                if ctx.entities[guest as usize].site != ctx.entities[host as usize].site || guest == host {
+                    return Err(LabError::Config("an entity can only be contained in another one at the same site".into()));
+                }
+                out.containment.push(Containment::Attach { guest, host });
+            }
+            Delta::Detach { guest } => {
+                at_home(guest)?;
+                out.containment.push(Containment::Detach(guest));
+            }
             Delta::Spawn { parent, ref genome } => {
                 at_home(parent)?;
                 out.life.push(Life::Spawn(parent, genome.clone()));
             }
-            Delta::Convert { entity, from, to, amount, yield_num, yield_den, leak_ppm, leak_draw, leak_to_sink } => {
+            Delta::Convert { entity, from, to, amount, yield_num, yield_den, leak_ppm, leak_draw, leak_to } => {
                 at_home(entity)?;
                 let (rf, rt) = (from as usize, to as usize);
                 if rf >= ctx.k || rt >= ctx.k || rf == rt {
@@ -159,22 +182,38 @@ fn process_block(ctx: &Context, block: Block) -> Result<BlockOut, LabError> {
                 let credited = block.ent_stock[base + rt].checked_add(produced - leaked).ok_or(LabError::Overflow("resource stock"))?;
                 if ctx.observe && produced > 0 {
                     let meta = &ctx.entities[entity as usize];
-                    let released = if leak_to_sink { 0 } else { leaked };
+                    let released = if matches!(leak_to, Holder::Site(_)) { leaked } else { 0 };
                     out.flows.push(Flow { entity: meta.id, site: meta.site, resource: to, taken: 0, released, produced });
                 }
-                if leaked > 0 {
-                    let target = if leak_to_sink {
-                        &mut out.dissipated[rt]
-                    } else {
-                        let site = ctx.entities[entity as usize].site;
-                        &mut block.site_stock[(site - block.sites.start) as usize * ctx.k + rt]
+                // Resolve where the leak goes before changing anything; it must be at this entity's site.
+                let leak_target = if leaked == 0 {
+                    None
+                } else {
+                    let site = ctx.entities[entity as usize].site;
+                    let local = match leak_to {
+                        Holder::Sink => true,
+                        Holder::Site(s) => s == site,
+                        Holder::Entity(e) => e != entity && ctx.entities.get(e as usize).is_some_and(|m| m.site == site),
+                        Holder::Source => false,
                     };
-                    *target = target.checked_add(leaked).ok_or(LabError::Overflow("resource stock"))?;
-                }
+                    if !local {
+                        return Err(LabError::Config(format!("a leak must go to the entity's own site, a holder there, or the sink, not {leak_to:?}")));
+                    }
+                    Some(place(ctx, &block, leak_to, rt)?)
+                };
                 out.converted_out[rf] = out.converted_out[rf].checked_add(consumed).ok_or(LabError::Overflow("conversion ledger"))?;
                 out.converted_in[rt] = out.converted_in[rt].checked_add(produced).ok_or(LabError::Overflow("conversion ledger"))?;
                 block.ent_stock[base + rf] -= consumed;
                 block.ent_stock[base + rt] = credited;
+                match leak_target {
+                    None => {}
+                    Some(Place::Boundary) => out.dissipated[rt] = out.dissipated[rt].checked_add(leaked).ok_or(LabError::Overflow("dissipation ledger"))?,
+                    Some(Place::Local { entity: to_entity, slot, .. }) => {
+                        let stock = if to_entity { &mut block.ent_stock[slot] } else { &mut block.site_stock[slot] };
+                        *stock = stock.checked_add(leaked).ok_or(LabError::Overflow("resource stock"))?;
+                    }
+                    Some(Place::Remote) => return Err(outside()),
+                }
             }
             Delta::Transfer { from, to, resource, amount } => {
                 let r = resource as usize;
@@ -323,12 +362,22 @@ pub(crate) fn apply_blocks(
     for out in &outs {
         for &(entity, to, adjacent) in &out.moves {
             let meta = &state.entities[entity as usize];
+            if meta.parent.is_some() {
+                return Err(LabError::Config(format!("entity {} is contained and cannot move on its own", meta.id)));
+            }
             if to >= n_sites || (adjacent && !state.topo.neighbours(meta.site).contains(&to)) {
                 return Err(LabError::Config(format!("entity {} cannot move from site {} to site {to}", meta.id, meta.site)));
             }
             state.entities[entity as usize].site = to;
             changed = true;
         }
+    }
+    if changed {
+        carry_guests(state);
+    }
+    if outs.iter().any(|out| !out.containment.is_empty()) {
+        changed = true;
+        apply_containment(state, &outs)?;
     }
     if outs.iter().any(|out| !out.life.is_empty()) {
         changed = true;
@@ -343,10 +392,12 @@ pub(crate) fn apply_blocks(
                         }
                         dead[e] = true;
                         let site = state.entities[e].site as usize;
+                        // `host_of` searches by id, which still works: nothing is removed from the list until later.
+                        let host = state.host_of(e).filter(|&h| h < n_entities);
                         if let Some(seen) = observation.as_deref_mut() {
                             let id = state.entities[e].id;
                             seen.deaths.push(Death { tick: state.tick, id });
-                            if recycle {
+                            if recycle && !host.is_some_and(|h| !dead[h]) {
                                 let held: Vec<Flow> = (0..k)
                                     .filter(|r| state.ent_stock[e * k + r] > 0)
                                     .map(|r| Flow { entity: id, site: site as u32, resource: r as u16, taken: 0, released: state.ent_stock[e * k + r], produced: 0 })
@@ -354,9 +405,14 @@ pub(crate) fn apply_blocks(
                                 seen.extend(&held);
                             }
                         }
+                        let host = host.filter(|&h| !dead[h]);
                         for r in 0..k {
                             let held = std::mem::take(&mut state.ent_stock[e * k + r]);
-                            let target = if recycle { &mut state.site_stock[site * k + r] } else { &mut state.ledger.dissipated[r] };
+                            let target = match (recycle, host) {
+                                (false, _) => &mut state.ledger.dissipated[r],
+                                (true, Some(h)) => &mut state.ent_stock[h * k + r],
+                                (true, None) => &mut state.site_stock[site * k + r],
+                            };
                             *target = target.checked_add(held).ok_or(LabError::Overflow("resource stock"))?;
                         }
                         state.deaths = state.deaths.checked_add(1).ok_or(LabError::Overflow("death counter"))?;
@@ -376,11 +432,13 @@ pub(crate) fn apply_blocks(
                             state.ent_stock[p * k + r] -= share;
                             state.ent_stock.push(share);
                         }
+                        let host = state.host_of(p).filter(|&h| h < n_entities && !dead[h]);
+                        let parent = host.map(|h| state.entities[h].id);
                         let mother = &state.entities[p];
                         if let Some(seen) = observation.as_deref_mut() {
                             seen.births.push(Birth { tick: state.tick, child: id, mother: mother.id });
                         }
-                        let child = EntityMeta { id, site: mother.site, parent: None, mother: Some(mother.id), born: state.tick };
+                        let child = EntityMeta { id, site: mother.site, parent, mother: Some(mother.id), born: state.tick };
                         state.entities.push(child);
                         state.genomes.push(genome);
                         state.births = state.births.checked_add(1).ok_or(LabError::Overflow("birth counter"))?;
@@ -389,6 +447,12 @@ pub(crate) fn apply_blocks(
             }
         }
         if dead.contains(&true) {
+            let gone: Vec<u64> = (0..n_entities).filter(|&i| dead[i]).map(|i| state.entities[i].id).collect();
+            for e in &mut state.entities {
+                if e.parent.is_some_and(|p| gone.binary_search(&p).is_ok()) {
+                    e.parent = None;
+                }
+            }
             // Offspring were appended after index `n_entities` and are never dead.
             let alive = |i: usize| i >= n_entities || !dead[i];
             let mut i = 0;
@@ -409,6 +473,47 @@ pub(crate) fn apply_blocks(
         }
     }
     Ok(changed)
+}
+
+/// Puts every contained entity at its host's site.
+fn carry_guests(state: &mut State) {
+    for i in 0..state.entities.len() {
+        if let Some(h) = state.host_of(i) {
+            state.entities[i].site = state.entities[h].site;
+        }
+    }
+}
+
+fn apply_containment(state: &mut State, outs: &[BlockOut]) -> Result<(), LabError> {
+    // Number of guests per host id, kept up to date so that one level of nesting is enforced.
+    let mut guests: BTreeMap<u64, u32> = BTreeMap::new();
+    for parent in state.entities.iter().filter_map(|e| e.parent) {
+        *guests.entry(parent).or_default() += 1;
+    }
+    for event in outs.iter().flat_map(|out| &out.containment) {
+        let (guest, host) = match *event {
+            Containment::Attach { guest, host } => (guest as usize, Some(host as usize)),
+            Containment::Detach(guest) => (guest as usize, None),
+        };
+        let new_parent = match host {
+            Some(h) => {
+                let (g_id, h_meta) = (state.entities[guest].id, &state.entities[h]);
+                if h_meta.parent.is_some() || guests.get(&g_id).is_some_and(|&n| n > 0) {
+                    return Err(LabError::Config(format!("entity {g_id} cannot be contained in {}: containment is one level deep", h_meta.id)));
+                }
+                Some(h_meta.id)
+            }
+            None => None,
+        };
+        if let Some(old) = state.entities[guest].parent {
+            *guests.entry(old).or_default() -= 1;
+        }
+        if let Some(new) = new_parent {
+            *guests.entry(new).or_default() += 1;
+        }
+        state.entities[guest].parent = new_parent;
+    }
+    Ok(())
 }
 
 /// Applies a list of deltas as one rule step, single-threaded, treating the whole world as one block.

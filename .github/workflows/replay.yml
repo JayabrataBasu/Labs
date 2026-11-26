@@ -42,7 +42,7 @@ jobs:
         shell: bash
         run: |
           # name:ticks pairs; each config has a pinned hash in configs/<name>.sha256 (DR-013).
-          for spec in reference:2000 crossfeed:1500 blackqueen:600 positive-control:600 negative-control:600; do
+          for spec in reference:2000 crossfeed:1500 blackqueen:600 positive-control:600 negative-control:600 containment:1500; do
             name="${spec%%:*}"; ticks="${spec##*:}"
             expected="$(tr -d '[:space:]' < "configs/$name.sha256")"
             for threads in 1 4; do

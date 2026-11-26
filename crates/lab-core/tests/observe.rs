@@ -14,7 +14,7 @@ impl Rule for Fixed {
             for &e in index.at(site) {
                 // Take up to 5 of resource 0, turn 4 of it into resource 1 (a quarter leaks), give 2 of 0 back.
                 out.push(Delta::Transfer { from: Holder::Site(site), to: Holder::Entity(e), resource: 0, amount: 5 });
-                out.push(Delta::Convert { entity: e, from: 0, to: 1, amount: 4, yield_num: 1, yield_den: 1, leak_ppm: 250_000, leak_draw: 0, leak_to_sink: false });
+                out.push(Delta::Convert { entity: e, from: 0, to: 1, amount: 4, yield_num: 1, yield_den: 1, leak_ppm: 250_000, leak_draw: 0, leak_to: Holder::Site(state.entities[e as usize].site) });
                 out.push(Delta::Transfer { from: Holder::Entity(e), to: Holder::Site(site), resource: 0, amount: 2 });
                 if state.entities[e as usize].id == 1 && state.tick == 1 {
                     out.push(Delta::Spawn { parent: e, genome: vec![] });

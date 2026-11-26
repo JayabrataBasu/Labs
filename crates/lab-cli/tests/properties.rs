@@ -26,42 +26,56 @@ fn rule_text(kind: usize, stream: usize, resource: usize, a: u64, b: u64, k: usi
         5 => (
             "metabolism.genes",
             format!(
-                "energy = \"{r}\", base_cost = {}, gene_cost = {}, yield_num = {}, yield_den = 4, reactions = [{}], release_to = \"{}\"",
+                "energy = \"{r}\", base_cost = {}, gene_cost = {}, yield_num = {}, yield_den = 4, reactions = [{}], release_to = \"{}\", guests_trade_with = \"{}\"",
                 a % 3,
                 b % 2,
                 a % 5,
                 if k > 1 { format!("{{ from = \"R0\", to = \"R1\", leak_ppm = {} }}", b % 1_000_001) } else { String::new() },
-                if b.is_multiple_of(5) { "sink" } else { "site" }
+                if b.is_multiple_of(5) { "sink" } else { "site" },
+                if a.is_multiple_of(3) { "site" } else { "host" }
             ),
         ),
         6 => (
             "reproduction.division",
             format!(
-                "requires = [{{ resource = \"{r}\", threshold = {} }}], site_capacity = {}, mutation = {{ point_ppm = {}, point_magnitude = 3, retarget_ppm = {}, duplicate_ppm = {}, delete_ppm = {}, max_genes = 12 }}",
+                "requires = [{{ resource = \"{r}\", threshold = {} }}], site_capacity = {}, mutation = {{ point_ppm = {}, point_magnitude = 3, retarget_ppm = {}, duplicate_ppm = {}, delete_ppm = {}, max_genes = 12, kinds = [\"uptake\", \"convert\", \"secrete\", \"bind\"] }}",
                 1 + a % 12, 1 + b % 6, a % 400_000, b % 300_000, a % 200_000, b % 200_000
             ),
         ),
         7 => ("death.starvation", format!("resource = \"{r}\", recycle = {}", !a.is_multiple_of(3))),
         8 => ("mix.relocate", format!("probability_ppm = {}", a % 1_000_001)),
-        _ => ("decay.fraction", format!("resource = \"{r}\", divisor = {}", 1 + a % 9)),
+        9 => ("decay.fraction", format!("resource = \"{r}\", divisor = {}", 1 + a % 9)),
+        10 => ("containment.bind", format!("probability_ppm = {}, max_guests = {}", a % 1_000_001, b % 5)),
+        11 => ("containment.share", format!("resources = [\"{r}\"], divisor = {}", 1 + a % 5)),
+        12 => ("containment.release", format!("probability_ppm = {}", a % 300_000)),
+        _ => (
+            "containment.partition",
+            format!("probability_ppm = {}, mode = \"{}\", max_guests = {}", a % 1_000_001, if b.is_multiple_of(2) { "random" } else { "lineage" }, b % 5),
+        ),
     };
-    let version = if id == "metabolism.genes" || id == "reproduction.division" { 2 } else { 1 };
+    let version = match id {
+        "metabolism.genes" => 3,
+        "reproduction.division" => 2,
+        _ => 1,
+    };
     format!("[[rules]]\nid = \"{id}\"\nversion = {version}\nstream = {stream}\nparams = {{ {params} }}\n")
 }
 
 fn world() -> impl Strategy<Value = World> {
-    let kinds = proptest::sample::subsequence(vec![0usize, 1, 2, 3, 4, 5, 6, 7, 8, 9], 1..=10).prop_shuffle();
+    let kinds = proptest::sample::subsequence((0usize..14).collect::<Vec<_>>(), 1..=14).prop_shuffle();
     (
         (3u32..=40, 3u32..=40, any::<bool>(), 1usize..=3, 0u64..=300),
-        (kinds, proptest::collection::vec((0usize..3, any::<u64>(), any::<u64>()), 10)),
+        (kinds, proptest::collection::vec((0usize..3, any::<u64>(), any::<u64>()), 14)),
         (0u64..=i64::MAX as u64, 1u32..=40, any::<usize>(), any::<u32>()),
         (proptest::collection::vec(0u64..=20, 3), proptest::collection::vec(0u64..=5, 3)),
     )
         .prop_map(|((w, h, wrap, k, entities), (kinds, params), (seed, ticks, insert, mid), (site, ent))| {
             let resources: Vec<String> = (0..k).map(|i| format!("\"R{i}\"")).collect();
             let list = |v: &[u64]| v[..k].iter().map(u64::to_string).collect::<Vec<_>>().join(", ");
-            // Founders can take up, convert (when there are two resources) and secrete.
-            let mut genome = String::from("{ kind = \"uptake\", resource = \"R0\", level = 3, sense = \"always\", threshold = 0 }");
+            // Founders can bind, take up, convert (when there are two resources) and secrete.
+            let mut genome = String::from(
+                "{ kind = \"bind\", resource = \"R0\", level = 1, sense = \"always\", threshold = 0 }, { kind = \"uptake\", resource = \"R0\", level = 3, sense = \"always\", threshold = 0 }",
+            );
             if k > 1 {
                 genome += ", { kind = \"convert\", from = \"R0\", to = \"R1\", level = 2, sense = \"always\", threshold = 0 }";
                 genome += ", { kind = \"secrete\", resource = \"R1\", level = 1, sense = \"R0\", threshold = 2 }";
@@ -202,14 +216,19 @@ proptest! {
     }
 
     #[test]
-    fn prop_entities_sorted_and_parent_none(w in world()) {
+    fn prop_entities_sorted_and_containment_one_level(w in world()) {
         let (cfg, _) = config(&w);
         let e = engine(&cfg, 2);
         let mut s = initial_state(&cfg).unwrap();
         for _ in 0..w.ticks {
             e.step(&mut s).unwrap();
             prop_assert!(s.entities.windows(2).all(|p| p[0].id < p[1].id));
-            prop_assert!(s.entities.iter().all(|x| x.parent.is_none() && x.site < s.topo.n_sites()));
+            prop_assert!(s.entities.iter().all(|x| x.site < s.topo.n_sites()));
+            for (i, x) in s.entities.iter().enumerate().filter(|(_, x)| x.parent.is_some()) {
+                // The host is alive, free and at the same site.
+                let host = s.host_of(i).map(|h| &s.entities[h]);
+                prop_assert!(host.is_some_and(|h| h.parent.is_none() && h.site == x.site), "entity {} in {:?}", x.id, x.parent);
+            }
             prop_assert_eq!(s.genomes.len(), s.entities.len());
             prop_assert_eq!(s.entities.len() as u64, cfg.init.founders.iter().map(|f| f.count).sum::<u64>() + s.births - s.deaths);
         }

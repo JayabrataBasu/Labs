@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::float_arithmetic)]
 
+mod containment;
 mod diffusion;
 mod environment;
 mod influx;
@@ -35,12 +36,20 @@ pub const RULE_IDS: &[&str] = &[
     lifecycle::RANDOM_DEATH_ID,
     environment::SHOCK_ID,
     environment::CULL_ID,
+    containment::BIND_ID,
+    containment::SHARE_ID,
+    containment::RELEASE_ID,
+    containment::PARTITION_ID,
 ];
 
 /// What the world editor offers when a rule is added: `(id, one-line description, params as JSON)`.
 /// The version a new instance should use is [`version_of`].
 /// `$R0`, `$R1`, `$R2` stand for the world's first, second and third resource names.
 pub const CATALOG: &[(&str, &str, &str)] = &[
+    (containment::BIND_ID, "Willing entities on a site may become host and guest (needs bind genes)", r#"{"probability_ppm":100000,"max_guests":3}"#),
+    (containment::SHARE_ID, "Resources flow from the richer to the poorer of each guest and host", r#"{"resources":["$R0"],"divisor":4}"#),
+    (containment::RELEASE_ID, "Guests leave their host with a probability", r#"{"probability_ppm":10000}"#),
+    (containment::PARTITION_ID, "After a host divides, guests may move to the daughter (lineage) or anywhere (random)", r#"{"probability_ppm":500000,"mode":"lineage","max_guests":3}"#),
     (influx::ID, "The outside world adds a resource to every site", r#"{"resource":"$R0","amount":2,"every":1}"#),
     (diffusion::ID, "Resource spreads to neighbouring sites", r#"{"resource":"$R0","divisor":8}"#),
     (environment::DECAY_ID, "A fraction of a resource at each site is lost", r#"{"resource":"$R0","divisor":20}"#),
@@ -49,19 +58,19 @@ pub const CATALOG: &[(&str, &str, &str)] = &[
     (
         metabolism::ID,
         "Entities act through their genes and pay for carrying them",
-        r#"{"energy":"$R0","base_cost":2,"gene_cost":1,"yield_num":1,"yield_den":2,"reactions":[{"from":"$R1","to":"$R2","leak_ppm":100000}],"release_to":"site"}"#,
+        r#"{"energy":"$R0","base_cost":2,"gene_cost":1,"yield_num":1,"yield_den":2,"reactions":[{"from":"$R1","to":"$R2","leak_ppm":100000}],"release_to":"site","guests_trade_with":"site"}"#,
     ),
     (movement::ID, "Entities step to a random neighbouring site", r#"{"probability_ppm":100000}"#),
     (environment::RELOCATE_ID, "Entities jump to any site: removes spatial structure (null world N2)", r#"{"probability_ppm":100000}"#),
     (
         lifecycle::DIVISION_ID,
         "Entities holding enough of every required resource divide; offspring may mutate",
-        r#"{"requires":[{"resource":"$R0","threshold":200}],"site_capacity":4,"mutation":{"point_ppm":20000,"point_magnitude":5,"retarget_ppm":2000,"duplicate_ppm":2000,"delete_ppm":5000,"max_genes":16}}"#,
+        r#"{"requires":[{"resource":"$R0","threshold":200}],"site_capacity":4,"mutation":{"point_ppm":20000,"point_magnitude":5,"retarget_ppm":2000,"duplicate_ppm":2000,"delete_ppm":5000,"max_genes":16,"kinds":["uptake","convert","secrete"]}}"#,
     ),
     (
         lifecycle::RANDOM_BIRTH_ID,
         "Entities divide with a fixed probability whatever they hold (null world N3)",
-        r#"{"probability_ppm":20000,"site_capacity":4,"mutation":{"point_ppm":0,"point_magnitude":0,"retarget_ppm":0,"duplicate_ppm":0,"delete_ppm":0,"max_genes":16}}"#,
+        r#"{"probability_ppm":20000,"site_capacity":4,"mutation":{"point_ppm":0,"point_magnitude":0,"retarget_ppm":0,"duplicate_ppm":0,"delete_ppm":0,"max_genes":16,"kinds":["uptake","convert","secrete"]}}"#,
     ),
     (lifecycle::STARVATION_ID, "Entities holding none of a resource die (recycle: their stocks return to the site, or vanish)", r#"{"resource":"$R0","recycle":true}"#),
     (lifecycle::RANDOM_DEATH_ID, "Entities die with a fixed probability (null world N3)", r#"{"probability_ppm":20000,"recycle":true}"#),
@@ -76,7 +85,8 @@ pub const CATALOG: &[(&str, &str, &str)] = &[
 /// The rule version this build implements.
 pub fn version_of(id: &str) -> u32 {
     match id {
-        metabolism::ID | lifecycle::DIVISION_ID => 2,
+        metabolism::ID => 3,
+        lifecycle::DIVISION_ID => 2,
         _ => 1,
     }
 }
@@ -103,6 +113,10 @@ fn build_one(cfg: &RuleCfg, resources: &[String], world: (u32, u32)) -> Result<B
         environment::RELOCATE_ID => Box::new(environment::Relocate::new(cfg)?),
         environment::SHOCK_ID => Box::new(environment::Shock::new(cfg, resources, world)?),
         environment::CULL_ID => Box::new(environment::Cull::new(cfg)?),
+        containment::BIND_ID => Box::new(containment::Bind::new(cfg)?),
+        containment::SHARE_ID => Box::new(containment::Share::new(cfg, resources)?),
+        containment::RELEASE_ID => Box::new(containment::Release::new(cfg)?),
+        containment::PARTITION_ID => Box::new(containment::Partition::new(cfg)?),
         other => return Err(LabError::Config(format!("unknown rule id {other:?}"))),
     };
     if cfg.version != rule.version() {

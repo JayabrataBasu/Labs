@@ -70,9 +70,9 @@ params = { resource = "C", divisor = 10 }
 
 [[rules]]
 id = "metabolism.genes"
-version = 2
+version = 3
 stream = 8
-params = { energy = "E", base_cost = 1, gene_cost = 1, yield_num = 3, yield_den = 4, reactions = [{ from = "A", to = "B", leak_ppm = 0 }, { from = "A", to = "C", leak_ppm = 0 }, { from = "B", to = "E", leak_ppm = 0 }, { from = "C", to = "F", leak_ppm = 0 }], release_to = "site" }
+params = { energy = "E", base_cost = 1, gene_cost = 1, yield_num = 3, yield_den = 4, reactions = [{ from = "A", to = "B", leak_ppm = 0 }, { from = "A", to = "C", leak_ppm = 0 }, { from = "B", to = "E", leak_ppm = 0 }, { from = "C", to = "F", leak_ppm = 0 }], release_to = "site", guests_trade_with = "site" }
 
 [[rules]]
 id = "death.starvation"
@@ -90,7 +90,7 @@ params = { probability_ppm = 5000, recycle = false }
 id = "reproduction.division"
 version = 2
 stream = 11
-params = { requires = [{ resource = "E", threshold = 120 }, { resource = "F", threshold = 120 }], site_capacity = 4, mutation = { point_ppm = 0, point_magnitude = 0, retarget_ppm = 0, duplicate_ppm = 0, delete_ppm = 0, max_genes = 16 } }
+params = { requires = [{ resource = "E", threshold = 120 }, { resource = "F", threshold = 120 }], site_capacity = 4, mutation = { point_ppm = 0, point_magnitude = 0, retarget_ppm = 0, duplicate_ppm = 0, delete_ppm = 0, max_genes = 16, kinds = ["uptake", "convert", "secrete"] } }
 
 [[rules]]
 id = "move.random"

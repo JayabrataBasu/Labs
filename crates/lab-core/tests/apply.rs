@@ -128,7 +128,7 @@ fn oracle_apply(state: &mut State, deltas: &[Delta]) {
     for delta in deltas {
         match *delta {
             Delta::Move { entity, to } => moves.push((entity, to)),
-            Delta::Convert { .. } | Delta::Relocate { .. } | Delta::Remove { .. } | Delta::Spawn { .. } => unreachable!("not used by these rules"),
+            Delta::Convert { .. } | Delta::Relocate { .. } | Delta::Remove { .. } | Delta::Spawn { .. } | Delta::Attach { .. } | Delta::Detach { .. } => unreachable!("not used by these rules"),
             Delta::Transfer { from, to, amount, .. } => {
                 let moved = if from == Holder::Source {
                     state.ledger.influx[0] += amount;

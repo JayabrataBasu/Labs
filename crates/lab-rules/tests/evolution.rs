@@ -5,7 +5,7 @@ use lab_core::{decode, encode, state_hash, Engine, Gene, GeneKind, State, SENSE_
 use lab_rng::RuleRng;
 use lab_rules::mutation::MutationParams;
 
-const NO_MUTATION: &str = "mutation = { point_ppm = 0, point_magnitude = 0, retarget_ppm = 0, duplicate_ppm = 0, delete_ppm = 0, max_genes = 16 }";
+const NO_MUTATION: &str = "mutation = { point_ppm = 0, point_magnitude = 0, retarget_ppm = 0, duplicate_ppm = 0, delete_ppm = 0, max_genes = 16, kinds = [\"uptake\", \"convert\", \"secrete\"] }";
 
 /// A 1x1 (or given) world with resources E, A, B and S; `genome` and `rules` are TOML fragments.
 fn world(size: (u32, u32), site: [u64; 4], entities: u64, ent: [u64; 4], genome: &str, rules: &str) -> String {
@@ -16,7 +16,11 @@ fn world(size: (u32, u32), site: [u64; 4], entities: u64, ent: [u64; 4], genome:
     )
 }
 fn rule(id: &str, stream: u16, params: &str) -> String {
-    let version = if id == "metabolism.genes" || id == "reproduction.division" { 2 } else { 1 };
+    let version = match id {
+        "metabolism.genes" => 3,
+        "reproduction.division" => 2,
+        _ => 1,
+    };
     format!("[[rules]]\nid = \"{id}\"\nversion = {version}\nstream = {stream}\nparams = {{ {params} }}\n")
 }
 fn gene(kind: &str, fields: &str, level: u16, sense: &str, threshold: u16) -> String {
@@ -27,7 +31,7 @@ fn reaction(from: &str, to: &str, leak_ppm: u32) -> String {
 }
 fn chemistry(base: u64, per_gene: u64, yield_den: u32, leak_ppm: u32, release_to: &str) -> String {
     let reactions = [reaction("A", "B", leak_ppm), reaction("B", "E", 0)].join(", ");
-    rule("metabolism.genes", 1, &format!("energy = \"E\", base_cost = {base}, gene_cost = {per_gene}, yield_num = 1, yield_den = {yield_den}, reactions = [{reactions}], release_to = \"{release_to}\""))
+    rule("metabolism.genes", 1, &format!("energy = \"E\", base_cost = {base}, gene_cost = {per_gene}, yield_num = 1, yield_den = {yield_den}, reactions = [{reactions}], release_to = \"{release_to}\", guests_trade_with = \"site\""))
 }
 fn metabolism(base: u64, per_gene: u64, transfer: bool) -> String {
     chemistry(base, per_gene, 2, 0, if transfer { "site" } else { "sink" })
@@ -214,7 +218,7 @@ fn founder() -> Vec<Gene> {
     ]
 }
 fn mutation(point: u32, magnitude: u16, retarget: u32, duplicate: u32, delete: u32, max_genes: u32) -> MutationParams {
-    MutationParams { point_ppm: point, point_magnitude: magnitude, retarget_ppm: retarget, duplicate_ppm: duplicate, delete_ppm: delete, max_genes }
+    MutationParams { point_ppm: point, point_magnitude: magnitude, retarget_ppm: retarget, duplicate_ppm: duplicate, delete_ppm: delete, max_genes, kinds: ["uptake", "convert", "secrete"].map(String::from).to_vec() }
 }
 const RNG: RuleRng = RuleRng { seed: 77, stream: 4 };
 

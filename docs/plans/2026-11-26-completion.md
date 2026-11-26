@@ -95,7 +95,7 @@ A → B → C → D (starts) → F (studio core) → E → F (finish) → D repo
 - [x] Phase B: observer, counterfactual
 - [x] Phase C: analysis and construct-check gate
 - [ ] Phase D: benchmark, exploration, N3 calibration, literature, registered RQ1, report
-- [ ] Phase E: containment
+- [x] Phase E: containment
 - [ ] Phase F: studio, HTML report, README, ODD, binaries
 - [ ] Phase G: bug-sweep handoff
 
@@ -104,3 +104,6 @@ A → B → C → D (starts) → F (studio core) → E → F (finish) → D repo
 - A: the first positive control collapsed because specialists also took their own product back; each now lacks uptake of what it makes.
 - A (exploratory observation, seed 1, one run): in blackqueen.toml lineages that dropped a leaky step are common by tick 6000. Not evidence until compared with nulls over seeds.
 - C: construct gate failed the group detectors (see docs/experiments/CONSTRUCT-CHECK.md). Replaced by an exact spatial-assortment measure; RQ1 H2 is about partner association, not detected coalitions.
+- E (DR-022 details): guests take no room on a site; `site_capacity` also bounds the guests per host, and a guest's offspring stays in its host. `max_guests` limits binding and re-assignment only. A dead guest's stocks go to its host; a dead host frees its guests. Observation records site exchange only, not host-guest exchange.
+- E: `metabolism.genes` is now version 3 (`guests_trade_with`) and mutation lists the gene kinds it may produce. Worlds without containment give the same series as before (checked on all five).
+- E (exploratory observation, seed 1): in configs/containment.toml bind genes persist and a few percent of entities are guests at tick 6000. Not evidence.

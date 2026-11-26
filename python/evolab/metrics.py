@@ -111,6 +111,31 @@ def _mean(values):
     return statistics.fmean(values) if values else None
 
 
+def host_units(entities):
+    """Hosts together with their guests, as sets of ids (DR-022)."""
+    units = {}
+    for e in entities.values():
+        if e.host is not None:
+            units.setdefault(e.host, {e.host}).add(e.id)
+    return [units[h] for h in sorted(units)]
+
+
+def host_composition(entities, chemistry):
+    """Who contains whom: share of guests, number of hosts, and the share of guest-host pairs that
+    depend on each other's products."""
+    guests = [e for e in entities.values() if e.host is not None and e.host in entities]
+    reciprocal = 0
+    for g in guests:
+        h = entities[g.host]
+        needs_g, needs_h = (capability.dependencies(x.genome, chemistry) for x in (g, h))
+        reciprocal += bool(needs_g & capability.makes(h.genome, chemistry)) and bool(needs_h & capability.makes(g.genome, chemistry))
+    return {
+        "hosted_fraction": len(guests) / len(entities) if entities else 0.0,
+        "hosts": len({g.host for g in guests}),
+        "host_reciprocal": reciprocal / len(guests) if guests else None,
+    }
+
+
 def analyse_window(window, chemistry, resources, settings):
     """All per-window measures. `settings` has flux_radius, contact_radius, min_share, min_fraction,
     permutations and shuffle_seed."""
@@ -151,6 +176,10 @@ def analyse_window(window, chemistry, resources, settings):
     parts = price.partition(price.window_fitness(window), {i: float(len(d)) for i, d in deps.items()}, d2)
     for key in ("selection", "between", "within"):
         out[f"price_{key}"] = parts[key] if parts else None
+    out.update(host_composition(window.entities_end, chemistry))
+    split = price.between_share(price.window_fitness(window), host_units(window.entities_start))
+    out["host_fitness_between"] = split["share"] if split else None
+    out["host_fitness_between_excess"] = split["excess"] if split else None
     end_deps = {i: capability.dependencies(e.genome, chemistry) for i, e in window.entities_end.items()}
     return out, pairs, d2, neighbour_pairs(window, radius, end_deps)
 

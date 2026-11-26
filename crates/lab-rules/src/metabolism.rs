@@ -17,6 +17,9 @@
 //! carrying a gene is never free. `release_to` says where secreted and leaked matter goes:
 //! `"site"` (others can take it up) or `"sink"` (null world N1a: the producer's budget is
 //! unchanged, but nothing is transferred to anyone).
+//! `guests_trade_with` applies to contained entities (DR-022): `"host"` means a guest takes up
+//! from, senses, secretes into and leaks into its host instead of the site; `"site"` means
+//! containment only ties their positions together.
 use crate::{invalid, params, resource_index};
 use lab_core::config::RuleCfg;
 use lab_core::{Delta, GeneKind, Holder, LabError, Rule, SiteIndex, State, SENSE_ALWAYS};
@@ -37,6 +40,7 @@ struct Params {
     /// The conversions this world allows.
     reactions: Vec<Reaction>,
     release_to: String,
+    guests_trade_with: String,
 }
 
 #[derive(Deserialize)]
@@ -57,6 +61,7 @@ pub struct Metabolism {
     /// `leak[from * k + to]`: the leak of an allowed reaction, `None` if the world forbids it.
     leak: Vec<Option<u32>>,
     to_sink: bool,
+    guests_inside: bool,
 }
 
 impl Metabolism {
@@ -84,7 +89,13 @@ impl Metabolism {
             "sink" => true,
             _ => return Err(invalid(cfg, "release_to must be \"site\" or \"sink\"")),
         };
+        let guests_inside = match p.guests_trade_with.as_str() {
+            "host" => true,
+            "site" => false,
+            _ => return Err(invalid(cfg, "guests_trade_with must be \"host\" or \"site\"")),
+        };
         Ok(Metabolism {
+            guests_inside,
             leak,
             stream: cfg.stream,
             energy: resource_index(cfg, &p.energy, resources)?,
@@ -102,7 +113,7 @@ impl Rule for Metabolism {
         ID
     }
     fn version(&self) -> u32 {
-        2
+        3
     }
     fn stream(&self) -> u16 {
         self.stream
@@ -120,6 +131,13 @@ impl Rule for Metabolism {
             queue.sort_unstable();
             for &(_, _, entity) in &queue {
                 let genome = &state.genomes[entity as usize];
+                // Where this entity's matter comes from and goes to: its site, or its host.
+                let host = if self.guests_inside { state.host_of(entity as usize) } else { None };
+                let (surroundings, stock) = match host {
+                    Some(h) => (Holder::Entity(h as u32), &state.ent_stock[h * state.k..][..state.k]),
+                    None => (Holder::Site(site), stock),
+                };
+                let release = if self.to_sink { Holder::Sink } else { surroundings };
                 for (position, gene) in genome.iter().enumerate() {
                     if gene.sense != SENSE_ALWAYS && stock[gene.sense as usize] < u64::from(gene.threshold) {
                         continue;
@@ -127,7 +145,7 @@ impl Rule for Metabolism {
                     let amount = u64::from(gene.level);
                     match gene.kind {
                         GeneKind::Uptake => {
-                            out.push(Delta::Transfer { from: Holder::Site(site), to: Holder::Entity(entity), resource: u16::from(gene.a), amount })
+                            out.push(Delta::Transfer { from: surroundings, to: Holder::Entity(entity), resource: u16::from(gene.a), amount })
                         }
                         GeneKind::Convert => {
                             let Some(leak_ppm) = self.leak[gene.a as usize * state.k + gene.b as usize] else {
@@ -144,13 +162,13 @@ impl Rule for Metabolism {
                                 yield_den: self.yield_den,
                                 leak_ppm,
                                 leak_draw,
-                                leak_to_sink: self.to_sink,
+                                leak_to: release,
                             })
                         }
                         GeneKind::Secrete => {
-                            let to = if self.to_sink { Holder::Sink } else { Holder::Site(site) };
-                            out.push(Delta::Transfer { from: Holder::Entity(entity), to, resource: u16::from(gene.a), amount })
+                            out.push(Delta::Transfer { from: Holder::Entity(entity), to: release, resource: u16::from(gene.a), amount })
                         }
+                        GeneKind::Bind => {} // acts through the containment rules
                     }
                 }
                 let cost = self.base_cost.saturating_add(self.gene_cost.saturating_mul(genome.len() as u64));
