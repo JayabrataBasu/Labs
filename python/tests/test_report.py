@@ -26,7 +26,9 @@ class Report(unittest.TestCase):
         for arm, values in (("intact", (1.0, 3.0)), (HOSTILE, (5.0, 5.0))):
             for seed, v in zip((1, 2), values):
                 rows.append(f"{arm},base,{seed},{'cd' * 32},20,{int(10 * v)},{v},,text")
-                run = self.d / arm.replace("/", "_") / "base" / f"seed-{seed}"
+                if arm == HOSTILE:
+                    continue  # its name is no valid folder name on every system
+                run = self.d / arm / "base" / f"seed-{seed}"
                 run.mkdir(parents=True)
                 (run / "series.csv").write_text(f"tick,entities\n0,5\n10,{seed * 10}\n20,{int(10 * v)}\n")
         (self.d / "summary.csv").write_text("\n".join(rows) + "\n")
