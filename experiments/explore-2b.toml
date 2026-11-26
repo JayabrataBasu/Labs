@@ -1,0 +1,43 @@
+# EXPLORATORY round 2 (DR-019): a symmetric two-public-goods world.
+name = "explore-2b"
+base_config = "../configs/blackqueen-symmetric.toml"
+ticks = 10000
+series_every = 500
+threads = 1
+seeds = [1, 2, 3]
+primary_outcome = "complementary"
+aim = "Does complementary dependence arise when the two public goods are alike?"
+estimand = "Share of runs with complementary coexistence and mean dependent fraction per cell."
+analysis_plan = "Exploratory: no inference. Use to choose a registered design."
+
+[observe]
+window = 10
+count = 3
+flux_radius = 1
+contact_radius = 0
+min_share = 0.05
+min_fraction = 0.05
+permutations = 10
+shuffle_seed = 1
+counterfactual_pairs = 0
+counterfactual_ticks = 100
+keep_raw = false
+
+[[arms]]
+name = "intact"
+transforms = []
+
+[[sweeps]]
+name = "leak"
+paths = ["rules.8.params.reactions.0.leak_ppm", "rules.8.params.reactions.1.leak_ppm"]
+values = [200000, 500000, 800000]
+
+[[sweeps]]
+name = "genecost"
+paths = ["rules.8.params.gene_cost"]
+values = [1, 2]
+
+[[sweeps]]
+name = "move"
+paths = ["rules.12.params.probability_ppm"]
+values = [3000, 10000, 50000]
