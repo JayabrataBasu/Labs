@@ -31,3 +31,21 @@ One seed per world: this checks the instruments, it is not a result about the wo
   attributes correctly when several donors are mixed.
 - The positive control has imposed *dependence* but no mechanism that brings partners together, so it is not a
   positive control for *association*; that rests on the hand-built layouts in `python/tests/test_analysis.py`.
+
+## Repeated after DR-024 (2026-11-26)
+
+The first table above used a dependence measure and worlds that were later corrected (DR-024): the
+measure was zero by construction in the symmetric world, and end products piled up. Same procedure on
+the corrected worlds and measure (seed 1, 5,000 ticks, last 8 windows of 20 ticks, 20 forked pairs):
+
+| Measure | positive | negative | blackqueen | symmetric |
+|---|---|---|---|---|
+| dependent_fraction | 1.00 | 0.00 | 0.39 | 0.85 |
+| dependent_fraction_leaked | 1.00 | 0.00 | 0.29 | 0.85 |
+| complementary | 1 | 0 | 0 | 1 |
+| cross_supply_share (estimate) | 0.84 | 0.00 | 0.83 | 0.87 |
+| reciprocal_excess, same site | -0.04 | none | 0.00 | -0.18 |
+| mutual_fraction, observed vs shuffled | 0.78 vs 0.70 | 0 vs 0 | 0.35 vs 0.27 | 0.07 vs 0.07 |
+| forked pairs: dependence / synergy | 23 / 47 | none (no pairs) | 0.25 / 0.5 (4 pairs) | 7.2 / 14 |
+
+Verdicts are unchanged: capability measures pass; group detectors still fail.

@@ -34,6 +34,7 @@ the only information channel; one level of containment.
 | Live viewing and the studio do not change a run | Tests comparing hashes with the headless run |
 | Same result on Linux, macOS, Windows | CI workflow `replay`: pinned state hash per example world (`configs/*.sha256`) |
 | Analysis formulas | Hand-computed unit tests (`python/tests/test_analysis.py`) |
+| Randomization tests, bootstrap, Holm adjustment, verdict rules | Hand-computed unit tests (`test_stats.py`, `test_registered.py`) |
 
 **Can the tests fail?** At M1 the kernel was deliberately broken five ways and each property test
 caught its fault (`docs/M1-REPORT.md`). The containment tests were checked against deliberately broken

@@ -12,7 +12,7 @@ import re
 import tomllib
 from pathlib import Path
 
-from . import analysis
+from . import analysis, registered
 
 # Charted after the primary outcome, when present and numeric.
 USUAL_METRICS = ["entities", "dependent_fraction", "dependent_fraction_leaked", "lacking_leaked", "complementary", "reciprocal_excess", "reciprocal_fraction",
@@ -195,6 +195,29 @@ def provenance(root, rows):
             "<th class=t>final state hash</th><th class=t>code</th><th class=t>uncommitted changes</th></tr>" + "".join(body) + "</table></details></section>")
 
 
+def fmt_p(p):
+    """Three significant digits, so that a small p-value never reads as zero."""
+    return f"{p:.3g}"
+
+
+def tests_section(root):
+    results = registered.evaluate(root)
+    if not results:
+        return ""
+    def cell(key, v):
+        if v is None:
+            return ""
+        return fmt_p(v) if key.startswith("p") and key != "point" else fmt(v) if isinstance(v, float) else esc(v)
+    columns = [("name", "hypothesis"), ("point", "cell"), ("metric", "metric"), ("arm", "arm"), ("against", "against"), ("n", "n"),
+               ("n_against", "n against"), ("missing", "missing"), ("estimate", "estimate"), ("low", "95% low"), ("high", "95% high"),
+               ("smallest_effect", "smallest effect"), ("p", "p"), ("p_adjusted", "p (Holm)"), ("verdict", "verdict")]
+    head = "".join(f"<th>{label}</th>" for _, label in columns)
+    body = "".join("<tr>" + "".join(f"<td>{cell(key, r[key])}</td>" for key, _ in columns) + "</tr>" for r in results)
+    return (f'<section><h2>Registered tests</h2><div style="overflow-x:auto"><table><tr>{head}</tr>{body}</table></div>'
+            '<p class="note">Declared in the specification. Two-sided randomization tests over runs; percentile bootstrap '
+            'intervals; Holm adjustment across this table.</p></section>')
+
+
 def build(root):
     root = Path(root)
     meta = json.loads((root / "experiment.json").read_text())
@@ -221,7 +244,7 @@ def build(root):
         f'<p class="note">{status[1]} {len(rows)} runs · {esc(meta.get("lab_version", ""))} · spec sha256 {esc(meta.get("spec_sha256", "")[:16])}</p>'
         f'<section>{about}<p class="note">A result here means only that the stated rules and random process produced it. '
         f'It is not a claim about real organisms or organizations.</p></section>'
-        f'{sections}<p class="note">Each dot is one run; the vertical stroke is the mean over seeds. Run-level measures average the '
+        f'{tests_section(root)}{sections}<p class="note">Each dot is one run; the vertical stroke is the mean over seeds. Run-level measures average the '
         f'observation windows; counts such as entities are taken at the last tick.</p>'
         f'{time_section(root, rows)}{provenance(root, rows)}'
         f'<details><summary>Specification</summary><pre>{esc(meta.get("spec_text", ""))}</pre></details></body></html>')

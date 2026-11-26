@@ -68,6 +68,7 @@ python3 -m evolab run experiments/demo.toml --out results --jobs 4 --exploratory
 python3 -m evolab html results/demo                     # self-contained report.html with charts
 python3 -m evolab report results/demo --metric dependent_fraction_leaked
 python3 -m evolab check  results/demo --metric dependent_fraction_leaked
+python3 -m evolab infer  results/<name>                 # tests declared in a spec's [[hypotheses]]
 ```
 
 Exploratory runs use seeds below 1000 and may be used to adjust a world. A registered experiment is

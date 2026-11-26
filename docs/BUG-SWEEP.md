@@ -39,7 +39,7 @@ CI (`.github/workflows/replay.yml`) repeats the checks on Linux, macOS and Windo
 | Checkpoint decoder | `crates/lab-core/src/codec.rs` | Hostile or truncated input (hand-written cases only; fuzz it) |
 | Studio server | `crates/lab-cli/src/studio/`, `edit.rs`, `live.rs` | Path and name checks, Host and Content-Type checks, requests during run replacement, large worlds, slow clients (one request thread) |
 | Observer | `crates/lab-core/src/observe.rs`, `crates/lab-cli/src/observe.rs` | Windows at the end of a run, host-guest exchange |
-| Experiment runner | `python/evolab/{runner,spec,transforms,calibrate}.py` | Frozen-spec checks that can be bypassed; partial reruns into an old results folder |
+| Experiment runner | `python/evolab/{runner,spec,transforms,calibrate,stats,registered}.py` | Frozen-spec checks that can be bypassed; partial reruns into an old results folder |
 
 ## Decisions taken on the owner's behalf
 

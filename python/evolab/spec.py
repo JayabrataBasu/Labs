@@ -36,6 +36,8 @@ design and the analysis plan cannot change after outcomes have been seen without
     name = "N1_no_interaction"
     transforms = [{ name = "null.no_secretion" }]
 
+    [inference]                                  # optional, with [[hypotheses]]: see registered.py
+
     [[sweeps]]                                   # full factorial over all sweeps
     path = "rules.5.params.divisor"              # rules.<stream>.params.<key>, init.founders.0.count, world.wrap ...
     values = [10, 20, 40]
@@ -53,7 +55,7 @@ import re
 import tomllib
 from pathlib import Path
 
-from . import toml_out, transforms
+from . import registered, toml_out, transforms
 
 OBSERVE_FIELDS = ["window", "count", "flux_radius", "contact_radius", "min_share", "min_fraction", "permutations",
                   "shuffle_seed", "counterfactual_pairs", "counterfactual_ticks", "keep_raw"]
@@ -89,6 +91,7 @@ def load(spec_path):
         _folder_name("arm", arm)
     if len(set(names)) != len(names):
         raise ValueError("arm names must be unique")
+    registered.check(spec)
     base_path = (spec_path.parent / spec["base_config"]).resolve()
     if "observe" in spec:
         missing = [k for k in OBSERVE_FIELDS if k not in spec["observe"]]

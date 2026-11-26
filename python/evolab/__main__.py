@@ -1,9 +1,10 @@
-"""python -m evolab freeze|run|report|html|check|calibrate ... (set PYTHONPATH=python)"""
+"""python -m evolab freeze|run|report|html|infer|check|calibrate ... (set PYTHONPATH=python)"""
 import argparse
+import json
 import sys
 from pathlib import Path
 
-from . import analysis, calibrate, report, runner, spec
+from . import analysis, calibrate, registered, report, runner, spec
 
 
 def main(argv=None):
@@ -20,6 +21,8 @@ def main(argv=None):
     p.add_argument("results")
     p.add_argument("--metric", required=True)
     p = sub.add_parser("html", help="write a self-contained report.html with charts into the results folder")
+    p.add_argument("results")
+    p = sub.add_parser("infer", help="evaluate the hypotheses declared in the spec; writes inference.json")
     p.add_argument("results")
     p = sub.add_parser("check", help="construct check of an outcome")
     p.add_argument("results")
@@ -44,6 +47,15 @@ def main(argv=None):
             print(f"{r['arm']:<22}{r['point']:<28}{r['n']:>3}{numbers}")
     elif a.cmd == "html":
         print(f"wrote {report.write(a.results)}")
+    elif a.cmd == "infer":
+        results = registered.evaluate(a.results)
+        if not results:
+            print("the spec declares no hypotheses")
+            return 1
+        (Path(a.results) / "inference.json").write_text(json.dumps(results, indent=1) + "\n")
+        for r in results:
+            numbers = " ".join(f"{k} {report.fmt_p(r[k]) if r[k] is not None else '-'}" for k in ("estimate", "low", "high", "p", "p_adjusted"))
+            print(f"{r['name']} [{r['point']}] {r['metric']} n {r['n']}/{r['n_against']} missing {r['missing']} {numbers}: {r['verdict']}")
     elif a.cmd == "calibrate":
         for key, value in calibrate.run(runner.lab_binary(), a.run, a.from_tick, a.ticks, a.work).items():
             print(f"{key} = {value:.0f}")
