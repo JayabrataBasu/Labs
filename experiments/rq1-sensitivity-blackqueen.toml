@@ -1,0 +1,53 @@
+# REGISTERED sensitivity design for RQ1, world blackqueen: do the directions found depend on the
+# untuned numbers (leak, decay of end products, building material spent at division)? Descriptive.
+name = "rq1-sensitivity-blackqueen"
+base_config = "../configs/blackqueen.toml"
+ticks = 10000
+series_every = 500
+threads = 1
+seeds = [2001, 2002, 2003]
+primary_outcome = "complementary"
+aim = "Sensitivity of the RQ1 contrasts to leak, end-product decay and division cost."
+estimand = "Per cell of the 2 x 2 x 2 design, intact minus null for complementary and dependent_fraction_leaked, and reciprocal_excess of the intact arm."
+analysis_plan = "Descriptive: the sign and size of each contrast in each of the eight cells, 3 seeds each. No tests."
+
+[observe]
+window = 20
+count = 8
+flux_radius = 1
+contact_radius = 0
+min_share = 0.05
+min_fraction = 0.05
+permutations = 20
+shuffle_seed = 1
+counterfactual_pairs = 0
+counterfactual_ticks = 100
+max_flux_pairs = 0
+keep_raw = false
+
+[[arms]]
+name = "intact"
+transforms = []
+
+[[arms]]
+name = "N1b_no_recycling"
+transforms = [{ name = "null.no_recycling" }]
+
+[[arms]]
+name = "N2_well_mixed"
+transforms = [{ name = "null.well_mixed" }]
+
+[[sweeps]]
+name = "leak"
+paths = ["rules.8.params.reactions.0.leak_ppm", "rules.8.params.reactions.1.leak_ppm"]
+values = [100000, 400000]
+
+[[sweeps]]
+name = "decay"
+paths = ["rules.13.params.divisor", "rules.14.params.divisor"]
+values = [5, 20]
+
+[[sweeps]]
+name = "consume"
+paths = ["rules.11.params.requires.0.consume", "rules.11.params.requires.1.consume"]
+values = [30, 90]

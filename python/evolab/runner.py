@@ -23,6 +23,12 @@ def lab_binary():
     raise FileNotFoundError("lab binary not found: run `cargo build --release` or set LAB_BIN")
 
 
+def source_hash(folder=Path(__file__).resolve().parent):
+    """Identifies the analysis code that produced a result: its sources, with line endings normalised."""
+    parts = [p.name.encode() + b"\0" + p.read_bytes().replace(b"\r\n", b"\n") for p in sorted(Path(folder).glob("*.py"))]
+    return specmod.sha256(b"\0".join(parts))
+
+
 def _run_one(job):
     binary, out, config_text, ticks, series_every, threads, observe = job
     out = Path(out)
@@ -81,7 +87,7 @@ def run_experiment(spec_path, out_root, jobs, exploratory=False):
     version = subprocess.run([binary, "--version"], capture_output=True, text=True).stdout.strip()
     (root / "experiment.json").write_text(json.dumps({
         "name": spec["name"], "registered": not exploratory, "spec_text": text, "spec_sha256": specmod.sha256(text.encode()),
-        "base_config": str(base_path), "lab_binary": binary, "lab_version": version, "n_runs": len(runs),
+        "base_config": str(base_path), "lab_binary": binary, "lab_version": version, "analysis_sha256": source_hash(), "n_runs": len(runs),
         "primary_outcome": spec["primary_outcome"], "analysis_plan": spec["analysis_plan"]}, indent=1) + "\n")
     work = [(binary, str(root / r["arm"] / r["point"] / f"seed-{r['seed']}"), toml_out.dumps(r["config"]), spec["ticks"],
              spec["series_every"], spec["threads"], spec.get("observe")) for r in runs]

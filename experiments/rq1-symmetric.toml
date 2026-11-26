@@ -1,0 +1,91 @@
+# REGISTERED design for RQ1, world blackqueen-symmetric (DR-019). Frozen before any run with these seeds.
+# Chosen after the three exploratory rounds (docs/experiments/EXPLORATION.md).
+name = "rq1-symmetric"
+base_config = "../configs/blackqueen-symmetric.toml"
+ticks = 10000
+series_every = 500
+threads = 1
+seeds = [1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1010, 1011, 1012, 1013, 1014, 1015, 1016, 1017, 1018, 1019, 1020, 1021, 1022, 1023, 1024, 1025, 1026, 1027, 1028, 1029, 1030]
+primary_outcome = "complementary"
+aim = "Do spatial locality, recycling of the dead, release by the living and selection change evolved dependence between entities?"
+estimand = "Per arm, the mean over 30 seeds of each measure, itself averaged over the last 8 observation windows."
+analysis_plan = "The five hypotheses declared below, identical in both worlds: two-sided randomization tests over seeds, Holm-adjusted within this world at alpha 0.025 (0.05 over the two worlds), 95% percentile bootstrap intervals. Supported = adjusted p below alpha and |estimate| at least the smallest effect; smaller than the threshold = interval inside it; otherwise inconclusive. N3 matches the intact death rate and population size, as recalibrated on exploratory seed 1. Who-fed-whom and group measures are not computed (they failed the construct check). All other measures are descriptive."
+
+[inference]
+seed = 20261126
+resamples = 100000
+bootstrap_resamples = 10000
+alpha = 0.025
+
+[observe]
+window = 20
+count = 8
+flux_radius = 1
+contact_radius = 0
+min_share = 0.05
+min_fraction = 0.05
+permutations = 20
+shuffle_seed = 1
+counterfactual_pairs = 0
+counterfactual_ticks = 100
+max_flux_pairs = 0
+keep_raw = false
+
+[[arms]]
+name = "intact"
+transforms = []
+
+[[arms]]
+name = "N1a_no_secretion"
+transforms = [{ name = "null.no_secretion" }]
+
+[[arms]]
+name = "N1b_no_recycling"
+transforms = [{ name = "null.no_recycling" }]
+
+[[arms]]
+name = "N2_well_mixed"
+transforms = [{ name = "null.well_mixed" }]
+
+[[arms]]
+name = "N3_neutral"
+transforms = [{ name = "null.neutral", birth_ppm = 500000, death_ppm = 124 }]
+
+[[hypotheses]]
+name = "H1_locality"
+test = "difference"
+metric = "complementary"
+arm = "intact"
+against = "N2_well_mixed"
+smallest_effect = 0.25
+
+[[hypotheses]]
+name = "H2_partner_association"
+test = "against_zero"
+metric = "reciprocal_excess"
+arm = "intact"
+smallest_effect = 0.02
+
+[[hypotheses]]
+name = "H3_capability_loss"
+test = "difference"
+metric = "lacking_leaked"
+arm = "intact"
+against = "N3_neutral"
+smallest_effect = 0.05
+
+[[hypotheses]]
+name = "H4_recycling"
+test = "difference"
+metric = "dependent_fraction_leaked"
+arm = "intact"
+against = "N1b_no_recycling"
+smallest_effect = 0.1
+
+[[hypotheses]]
+name = "H5_living_release"
+test = "difference"
+metric = "dependent_fraction_leaked"
+arm = "intact"
+against = "N1a_no_secretion"
+smallest_effect = 0.1

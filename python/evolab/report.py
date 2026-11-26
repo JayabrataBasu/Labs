@@ -241,7 +241,7 @@ def build(root):
         f'<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
         f'<link rel="icon" href="data:,"><title>{esc(meta["name"])} · report</title><style>{STYLE}</style></head><body>'
         f'<h1>{esc(meta["name"])}<span class="badge">{status[0]}</span></h1>'
-        f'<p class="note">{status[1]} {len(rows)} runs · {esc(meta.get("lab_version", ""))} · spec sha256 {esc(meta.get("spec_sha256", "")[:16])}</p>'
+        f'<p class="note">{status[1]} {len(rows)} runs · {esc(meta.get("lab_version", ""))} · spec sha256 {esc(meta.get("spec_sha256", "")[:16])} · analysis sha256 {esc(meta.get("analysis_sha256", "")[:16])}</p>'
         f'<section>{about}<p class="note">A result here means only that the stated rules and random process produced it. '
         f'It is not a claim about real organisms or organizations.</p></section>'
         f'{tests_section(root)}{sections}<p class="note">Each dot is one run; the vertical stroke is the mean over seeds. Run-level measures average the '

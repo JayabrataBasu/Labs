@@ -304,6 +304,21 @@ transforms = [{ name = "null.no_secretion" }, { name = "null.no_recycling" }]
 
 
 @unittest.skipUnless(LAB.exists(), "needs `cargo build --release`")
+class AnalysisVersion(unittest.TestCase):
+    def test_the_hash_follows_the_analysis_code_and_ignores_line_endings(self):
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        (d / "b.py").write_bytes(b"x = 1\n")
+        (d / "a.py").write_bytes(b"y = 2\n")
+        first = runner.source_hash(d)
+        self.assertRegex(first, r"^[0-9a-f]{64}$")
+        (d / "a.py").write_bytes(b"y = 2\r\n")
+        (d / "notes.txt").write_text("not code")
+        self.assertEqual(runner.source_hash(d), first)
+        (d / "a.py").write_bytes(b"y = 3\n")
+        self.assertNotEqual(runner.source_hash(d), first)
+
+
 class ObservedExperiment(unittest.TestCase):
     def test_observed_runs_are_analysed_summarised_and_cleaned_up(self):
         d = Path(tempfile.mkdtemp())
@@ -345,6 +360,7 @@ transforms = []
         root = runner.run_experiment(d / "spec.toml", d / "out", 2, exploratory=True)
         rows = analysis.load_summary(root)
         self.assertEqual(len(rows), 2)
+        self.assertEqual(json.loads((root / "experiment.json").read_text())["analysis_sha256"], runner.source_hash())
         for row in rows:
             self.assertEqual(float(row["dependent_fraction"]), 1.0)
             self.assertEqual(float(row["complementary"]), 1.0)
