@@ -39,6 +39,11 @@ design and the analysis plan cannot change after outcomes have been seen without
     [[sweeps]]                                   # full factorial over all sweeps
     path = "rules.5.params.divisor"              # rules.<stream>.params.<key>, init.founders.0.count, world.wrap ...
     values = [10, 20, 40]
+
+    [[sweeps]]                                   # several settings moved together need a name
+    name = "leak"
+    paths = ["rules.8.params.reactions.0.leak_ppm", "rules.8.params.reactions.1.leak_ppm"]
+    values = [50000, 200000]
 """
 import copy
 import hashlib
@@ -110,6 +115,15 @@ def set_path(cfg, path, value):
     node[step(node, parts[-1])] = value
 
 
+def _paths(sweep):
+    """A sweep changes one setting (`path`) or several together (`paths`), to the same value."""
+    return sweep["paths"] if "paths" in sweep else [sweep["path"]]
+
+
+def _name(sweep):
+    return sweep["name"] if "name" in sweep else sweep["path"].replace(".", "-")
+
+
 def expand(spec, base_cfg):
     """Every run of the experiment: arm x sweep point x seed, each with its full config."""
     sweeps = spec.get("sweeps", [])
@@ -121,12 +135,13 @@ def expand(spec, base_cfg):
                 cfg = copy.deepcopy(arm_cfg)
                 label = "base"
                 for sweep, value in zip(sweeps, point):
-                    set_path(cfg, sweep["path"], value)
+                    for path in _paths(sweep):
+                        set_path(cfg, path, value)
                 if point:
-                    label = "_".join(f"{s['path'].replace('.', '-')}={v}" for s, v in zip(sweeps, point))
+                    label = "_".join(f"{_name(s)}={v}" for s, v in zip(sweeps, point))
                 cfg["seed"] = seed
                 runs.append({"arm": arm["name"], "point": label, "seed": seed, "config": cfg,
-                             "params": {s["path"]: v for s, v in zip(sweeps, point)}})
+                             "params": {_name(s): v for s, v in zip(sweeps, point)}})
     return runs
 
 

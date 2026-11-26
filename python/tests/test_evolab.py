@@ -135,6 +135,14 @@ transforms = [{{ name = "null.no_secretion" }}]
         with self.assertRaises(ValueError):
             spec.expand(s, tomllib.loads(base.read_text()))
 
+    def test_a_named_sweep_moves_several_settings_together(self):
+        path = self.make('[[sweeps]]\nname = "leak"\npaths = ["rules.6.params.reactions.0.leak_ppm", "rules.6.params.reactions.1.leak_ppm"]\nvalues = [7, 9]\n')
+        s, _, base = spec.load(path)
+        runs = spec.expand(s, tomllib.loads(base.read_text()))
+        self.assertEqual(sorted({r["point"] for r in runs}), ["leak=7", "leak=9"])
+        reactions = [r for r in runs[0]["config"]["rules"] if r["stream"] == 6][0]["params"]["reactions"]
+        self.assertEqual([x["leak_ppm"] for x in reactions], [7, 7])
+
     def test_registered_specs_cannot_use_exploratory_seeds(self):
         path = self.make(seeds="[1, 2, 3]")
         with self.assertRaises(ValueError) as caught:
