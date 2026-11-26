@@ -46,6 +46,9 @@ rules; several first drafts passed regardless of the behaviour and were rewritte
 | A rewrite of conversion dropped the converted-in/out ledger entries | Conservation check in an editor round-trip test |
 | A new gene kind was missing from the name table (would have crashed on output) | Test of containment worlds |
 | Random test worlds omitted a new required setting | Property tests |
+| The dependence measure was zero by construction in one world; a never-consumed resource piled up | Inspecting final genomes of exploratory runs (DR-024) |
+| Command-line report rounded fractions to zero; an experiment spec had been committed empty | Following the README; loading every spec |
+| Studio charts could stop short of the last tick; the page stayed blank until a first request returned | Browser check in Firefox |
 
 ## Instrument verification
 
@@ -65,8 +68,10 @@ None. The model has not been compared with any empirical system, and no result h
 ## Interface checks
 
 The studio and the report were opened in headless Chromium and driven by a script (start a run, change
-the map, inspect a site, copy a world, edit and save it); screenshots were inspected. **Not checked:**
-Firefox, Safari, Windows or macOS browsers, screen readers, small screens.
+the map, inspect a site, copy a world, edit and save it); screenshots were inspected. In headless
+Firefox a run was started from the page, the map recoloured, the editor and experiment tabs opened
+(no console errors) and a report rendered. The README commands were followed in a fresh clone on this
+machine. **Not checked:** Safari, Windows or macOS browsers, screen readers, small screens.
 
 ## Not yet done
 

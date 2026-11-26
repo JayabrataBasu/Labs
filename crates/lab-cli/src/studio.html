@@ -343,13 +343,14 @@ async function drawCharts() {
 
 // ---- polling --------------------------------------------------------------------------
 let drawnTick = -1, drawnCharts = 0, wasDone = false;
+let chartsStale = true;
 async function poll() {
   try {
     status = await api('/status');
     for (const id of ['pause', 'resume', 'step', 'stop']) $(id).disabled = !status.active || status.done;
     if (status.active) {
       if (status.run !== shownRun) {
-        shownRun = status.run; selected = null; drawnTick = -1; drawnCharts = 0; wasDone = false; slots = new Map();
+        shownRun = status.run; selected = null; drawnTick = -1; drawnCharts = 0; chartsStale = true; wasDone = false; slots = new Map();
         for (const id of ['popChart', 'geneCharts', 'resourceCharts', 'latest']) $(id).replaceChildren();
         $('inspector').replaceChildren(el('p', { class: 'hint' }, 'Click a site on the map.'));
         layerOptions();
@@ -361,7 +362,9 @@ async function poll() {
       if (tab === 'run') {
         const changed = status.tick !== drawnTick || (status.done && !wasDone);
         if (changed) { drawnTick = status.tick; await drawMap(); if (selected) await inspect(); }
-        if (Date.now() - drawnCharts > 700 && (changed || !drawnCharts)) { drawnCharts = Date.now(); await drawCharts(); }
+        // Charts redraw at most every 700 ms, but nothing skipped is forgotten: the last tick always shows.
+        chartsStale ||= changed;
+        if (chartsStale && (status.done || Date.now() - drawnCharts > 700)) { chartsStale = false; drawnCharts = Date.now(); await drawCharts(); }
         wasDone = status.done;
       }
     }
@@ -395,9 +398,11 @@ function openReport(name) {
 }
 $('runSpec').onclick = attempt(async () => { await api('/experiments/run', { spec: $('spec').value, jobs: whole('jobs') }); refreshExperiments(); });
 
+// The tab appears at once, even if the server is slow or a first request fails.
+show(['worlds', 'run', 'experiments'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'run');
 (async () => {
-  await loadWorlds();
-  show(['worlds', 'run', 'experiments'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'run');
+  await attempt(loadWorlds)();
+  if (tab === 'worlds' && !$('editor').src) openEditor();
   poll();
 })();
 </script>

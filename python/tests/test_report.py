@@ -1,4 +1,6 @@
 """The self-contained HTML report of an experiment."""
+import contextlib
+import io
 import json
 import re
 import shutil
@@ -11,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "python"))
 
 from evolab import report  # noqa: E402
+from evolab.__main__ import main  # noqa: E402
 
 HOSTILE = "<script>alert(1)</script>"
 
@@ -70,6 +73,14 @@ class Report(unittest.TestCase):
     def test_cells_are_ordered_by_number_not_by_spelling(self):
         cells = [("b", "leak=500000"), ("a", "leak=500000_move=9"), ("a", "leak=50000_move=10000"), ("a", "leak=50000_move=900")]
         self.assertEqual(sorted(cells, key=report.natural), [cells[3], cells[2], cells[1], cells[0]])
+
+    def test_command_line_table_keeps_fractions(self):
+        (self.d / "summary.csv").write_text("arm,point,seed,final_sha256,share\nintact,base,1,ab,0.125\nintact,base,2,ab,0.375\n")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            main(["report", str(self.d), "--metric", "share"])
+        line = out.getvalue().splitlines()[1].split()
+        self.assertEqual(line[:3] + [line[3], line[5], line[6], line[7]], ["intact", "base", "2", "0.25", "0.125", "0.25", "0.375"])
 
     def test_axis_covers_the_values_with_round_ends(self):
         self.assertEqual(report.axis([1.0, 3.0, 5.0]), (0.0, 5.0))

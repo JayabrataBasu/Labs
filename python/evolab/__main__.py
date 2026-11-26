@@ -38,9 +38,10 @@ def main(argv=None):
         print(f"results in {root}")
     elif a.cmd == "report":
         rows = analysis.load_summary(a.results)
-        print(f"{'arm':<22}{'point':<28}{'n':>3}{'mean':>12}{'sd':>10}{'min':>10}{'median':>10}{'max':>10}")
+        print(f"{'arm':<22}{'point':<28}{'n':>3}" + "".join(f"{k:>11}" for k in ("mean", "sd", "min", "median", "max")))
         for r in analysis.table(rows, a.metric):
-            print(f"{r['arm']:<22}{r['point']:<28}{r['n']:>3}{r['mean']:>12.1f}{r['sd']:>10.1f}{r['min']:>10.0f}{r['median']:>10.0f}{r['max']:>10.0f}")
+            numbers = "".join(f"{report.fmt(r[k]):>11}" for k in ("mean", "sd", "min", "median", "max"))
+            print(f"{r['arm']:<22}{r['point']:<28}{r['n']:>3}{numbers}")
     elif a.cmd == "html":
         print(f"wrote {report.write(a.results)}")
     elif a.cmd == "calibrate":

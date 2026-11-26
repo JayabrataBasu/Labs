@@ -1,0 +1,37 @@
+# A one-minute example experiment (README quickstart). Too short and too few seeds to show anything:
+# it exists to try the tools.
+name = "demo"
+base_config = "../configs/containment.toml"
+ticks = 600
+series_every = 50
+threads = 1
+seeds = [1, 2, 3, 4, 5]
+primary_outcome = "entities"
+aim = "Try the experiment runner, the report and the checks."
+estimand = "None."
+analysis_plan = "None: a demonstration."
+
+[observe]
+window = 10
+count = 3
+flux_radius = 1
+contact_radius = 0
+min_share = 0.05
+min_fraction = 0.05
+permutations = 10
+shuffle_seed = 1
+counterfactual_pairs = 0
+counterfactual_ticks = 100
+keep_raw = false
+
+[[arms]]
+name = "intact"
+transforms = []
+
+[[arms]]
+name = "N1a_no_secretion"
+transforms = [{ name = "null.no_secretion" }]
+
+[[arms]]
+name = "no_sharing"
+transforms = [{ name = "null.no_sharing" }]

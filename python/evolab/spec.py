@@ -49,6 +49,7 @@ import copy
 import hashlib
 import itertools
 import json
+import re
 import tomllib
 from pathlib import Path
 
@@ -61,6 +62,12 @@ REQUIRED = ["name", "base_config", "ticks", "series_every", "threads", "seeds", 
 # Seed firewall (DR-019). Seeds below this are for exploration and tuning; a registered (frozen)
 # experiment may only use seeds at or above it, so confirmatory runs are never the runs the design was tuned on.
 EXPLORATORY_SEED_LIMIT = 1000
+
+
+def _folder_name(what, text):
+    """Spec, arm and sweep-point names become folders under the results folder."""
+    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.=+-]*", str(text)):
+        raise ValueError(f"{what} name {text!r} may use letters, digits and _ . = + - only, and must not start with a dot")
 
 
 def sha256(data: bytes) -> str:
@@ -77,6 +84,9 @@ def load(spec_path):
     if not spec["seeds"] or len(set(spec["seeds"])) != len(spec["seeds"]):
         raise ValueError("seeds must be a non-empty list without duplicates")
     names = [a["name"] for a in spec["arms"]]
+    _folder_name("spec", spec["name"])
+    for arm in names:
+        _folder_name("arm", arm)
     if len(set(names)) != len(names):
         raise ValueError("arm names must be unique")
     base_path = (spec_path.parent / spec["base_config"]).resolve()
@@ -139,6 +149,7 @@ def expand(spec, base_cfg):
                         set_path(cfg, path, value)
                 if point:
                     label = "_".join(f"{_name(s)}={v}" for s, v in zip(sweeps, point))
+                    _folder_name("sweep point", label)
                 cfg["seed"] = seed
                 runs.append({"arm": arm["name"], "point": label, "seed": seed, "config": cfg,
                              "params": {_name(s): v for s, v in zip(sweeps, point)}})

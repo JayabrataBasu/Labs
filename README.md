@@ -64,10 +64,10 @@ parameter sweeps, seeds, outcomes and an analysis plan. `python/evolab/spec.py` 
 
 ```
 export PYTHONPATH=python
-python3 -m evolab run experiments/explore-2b.toml --out results --jobs 8 --exploratory
-python3 -m evolab html results/explore-2b                     # self-contained report.html with charts
-python3 -m evolab report results/explore-2b --metric dependent_fraction
-python3 -m evolab check  results/explore-2b --metric dependent_fraction
+python3 -m evolab run experiments/demo.toml --out results --jobs 4 --exploratory   # about a minute
+python3 -m evolab html results/demo                     # self-contained report.html with charts
+python3 -m evolab report results/demo --metric dependent_fraction_leaked
+python3 -m evolab check  results/demo --metric dependent_fraction_leaked
 ```
 
 Exploratory runs use seeds below 1000 and may be used to adjust a world. A registered experiment is
@@ -102,6 +102,7 @@ catalog. A rule only *proposes* changes; `lab-core` applies them and checks cons
 | Model description (ODD) | `docs/ODD.md` |
 | How the model and instruments were tested | `docs/TESTING.md` |
 | Decisions | `docs/DECISIONS.md` |
+| Handoff for code review | `docs/BUG-SWEEP.md` |
 | Scope and glossary | `docs/PROPOSAL.md` |
 | Experiments and findings | `docs/experiments/` |
 | Progress and rulings | `docs/plans/` |

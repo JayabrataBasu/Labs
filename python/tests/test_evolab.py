@@ -143,6 +143,20 @@ transforms = [{{ name = "null.no_secretion" }}]
         (d / "spec.toml").write_text(text)
         return d / "spec.toml"
 
+    def test_names_that_become_folders_cannot_leave_the_results_folder(self):
+        for bad in ('name = "../up"', 'name = "a/b"', 'name = ".hidden"'):
+            path = self.make()
+            path.write_text(path.read_text().replace('name = "t"', bad))
+            with self.assertRaisesRegex(ValueError, "name"):
+                spec.load(path)
+        path = self.make()
+        path.write_text(path.read_text().replace('name = "N1_x"', 'name = "../../x"'))
+        with self.assertRaisesRegex(ValueError, "name"):
+            spec.load(path)
+        loaded, _, base = spec.load(self.make('[[sweeps]]\nname = "a/b"\npath = "world.wrap"\nvalues = [true]'))
+        with self.assertRaisesRegex(ValueError, "name"):
+            spec.expand(loaded, tomllib.loads(base.read_text()))
+
     def test_expansion_is_the_full_factorial(self):
         path = self.make('[[sweeps]]\npath = "rules.5.params.divisor"\nvalues = [10, 20]\n[[sweeps]]\npath = "init.founders.0.count"\nvalues = [100, 200, 300]\n')
         s, _, base = spec.load(path)
