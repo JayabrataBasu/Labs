@@ -1,7 +1,7 @@
 //! Property tests for the core invariants: thread-count invariance, exact conservation,
 //! RNG stream isolation, and checkpoint/resume equivalence, over randomly generated worlds.
 use lab_core::config::{initial_state, parse, Config};
-use lab_core::{check_conservation, decode, encode, state_hash, Delta, Engine, Rule, SiteIndex, State};
+use lab_core::{check_conservation, decode, encode, state_hash, Delta, Engine, Observation, Rule, SiteIndex, State};
 use lab_rng::RuleRng;
 use proptest::prelude::*;
 use std::ops::Range;
@@ -159,6 +159,28 @@ proptest! {
             e.step(&mut s).unwrap();
         }
         prop_assert_eq!(state_hash(&s, &hash), run(&w, 2));
+    }
+
+    #[test]
+    fn prop_observation_changes_nothing_and_reconciles(w in world()) {
+        let (cfg, hash) = config(&w);
+        let observe = |threads: usize| {
+            let e = engine(&cfg, threads);
+            let mut s = initial_state(&cfg).unwrap();
+            let mut seen = Observation::default();
+            for _ in 0..w.ticks {
+                e.step_observed(&mut s, &mut seen).unwrap();
+            }
+            (s, seen.flows().to_vec(), seen.births.len() as u64, seen.deaths.len() as u64)
+        };
+        let (s, flows, births, deaths) = observe(1);
+        prop_assert_eq!(state_hash(&s, &hash), run(&w, 2));
+        prop_assert_eq!((births, deaths), (s.births, s.deaths));
+        for r in 0..s.k {
+            let produced: u64 = flows.iter().filter(|f| f.resource as usize == r).map(|f| f.produced).sum();
+            prop_assert_eq!(produced, s.ledger.converted_in[r]);
+        }
+        prop_assert_eq!(observe(5).1, flows);
     }
 
     #[test]

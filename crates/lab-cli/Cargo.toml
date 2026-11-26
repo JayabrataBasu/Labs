@@ -12,6 +12,7 @@ path = "src/main.rs"
 lab-core = { path = "../lab-core" }
 lab-rules = { path = "../lab-rules" }
 clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tiny_http = "0.12"
 toml = "0.8"

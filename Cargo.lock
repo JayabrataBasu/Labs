@@ -377,6 +377,7 @@ dependencies = [
  "lab-rng",
  "lab-rules",
  "proptest",
+ "serde",
  "serde_json",
  "tiny_http",
  "toml",

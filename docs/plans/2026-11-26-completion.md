@@ -92,7 +92,7 @@ A → B → C → D (starts) → F (studio core) → E → F (finish) → D repo
 
 ## Progress (update as work lands)
 - [x] Phase A: world mechanisms (leak, release_to, requirements, founders, three new worlds)
-- [ ] Phase B: observer, counterfactual
+- [x] Phase B: observer, counterfactual
 - [ ] Phase C: analysis and construct-check gate
 - [ ] Phase D: benchmark, exploration, N3 calibration, literature, registered RQ1, report
 - [ ] Phase E: containment

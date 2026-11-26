@@ -180,6 +180,37 @@ impl State {
     }
 
     /// Total of resource `r` held by all sites and entities.
+    /// Removes every entity whose id is not in `keep` (ascending), as an intervention for
+    /// counterfactual forks. What they held leaves the system as dissipation, so conservation
+    /// still holds, and they are counted as deaths. Returns how many were removed.
+    pub fn retain_entities(&mut self, keep: &[u64]) -> usize {
+        let k = self.k;
+        let kept: Vec<bool> = self.entities.iter().map(|e| keep.binary_search(&e.id).is_ok()).collect();
+        for (i, _) in kept.iter().enumerate().filter(|(_, &keep)| !keep) {
+            for r in 0..k {
+                self.ledger.dissipated[r] = self.ledger.dissipated[r].saturating_add(self.ent_stock[i * k + r]);
+            }
+        }
+        let removed = kept.iter().filter(|&&keep| !keep).count();
+        let mut i = 0;
+        self.entities.retain(|_| {
+            i += 1;
+            kept[i - 1]
+        });
+        let mut i = 0;
+        self.genomes.retain(|_| {
+            i += 1;
+            kept[i - 1]
+        });
+        let mut i = 0;
+        self.ent_stock.retain(|_| {
+            i += 1;
+            kept[(i - 1) / k]
+        });
+        self.deaths = self.deaths.saturating_add(removed as u64);
+        removed
+    }
+
     pub fn total(&self, r: usize) -> Result<u64, LabError> {
         let mut sum = 0u64;
         for chunk in self.site_stock.chunks_exact(self.k).chain(self.ent_stock.chunks_exact(self.k)) {

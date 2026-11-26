@@ -1,7 +1,7 @@
 //! The tick loop. Proposals are computed in parallel over fixed blocks of sites and applied
 //! with the per-site semantics of `apply.rs`, so the result is independent of the number of threads.
 use crate::apply::apply_blocks;
-use crate::{check_conservation, Delta, LabError, Rule, State};
+use crate::{check_conservation, Delta, LabError, Observation, Rule, State};
 use lab_rng::{RuleRng, STREAM_INIT};
 use rayon::prelude::*;
 use std::ops::Range;
@@ -53,6 +53,16 @@ impl Engine {
     ///
     /// If this returns an error the state may be partly updated and must be discarded.
     pub fn step(&self, state: &mut State) -> Result<(), LabError> {
+        self.advance(state, None)
+    }
+
+    /// Like [`Engine::step`], and adds what moved, was born and died to `observation`.
+    /// The resulting state is identical.
+    pub fn step_observed(&self, state: &mut State, observation: &mut Observation) -> Result<(), LabError> {
+        self.advance(state, Some(observation))
+    }
+
+    fn advance(&self, state: &mut State, mut observation: Option<&mut Observation>) -> Result<(), LabError> {
         if state.tick >= u64::from(u32::MAX) {
             return Err(LabError::Config("tick limit of 2^32 - 1 reached".into()));
         }
@@ -74,7 +84,7 @@ impl Engine {
                     rule.propose(snapshot, &index, rng, sites.clone(), out);
                 })
             });
-            let moved = apply_blocks(state, &index, &chunks, proposals, gathered, Some(&self.pool)).map_err(|e| match e {
+            let moved = apply_blocks(state, &index, &chunks, proposals, gathered, Some(&self.pool), observation.as_deref_mut()).map_err(|e| match e {
                 LabError::Config(m) => LabError::Config(format!("rule {}: {m}", rule.id())),
                 other => other,
             })?;

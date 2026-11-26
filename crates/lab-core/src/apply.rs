@@ -19,7 +19,7 @@
 //!
 //! Sites therefore never read each other's stocks while a rule is applied, which is what
 //! lets blocks of sites be processed on different threads with identical results.
-use crate::{leaked_amount, Delta, EntityMeta, Gene, Holder, LabError, SiteIndex, State};
+use crate::{leaked_amount, Birth, Death, Delta, EntityMeta, Flow, Gene, Holder, LabError, Observation, SiteIndex, State};
 use rayon::prelude::*;
 use std::ops::Range;
 
@@ -33,6 +33,8 @@ struct BlockOut {
     dissipated: Vec<u64>,
     converted_in: Vec<u64>,
     converted_out: Vec<u64>,
+    /// What moved, if anyone is watching.
+    flows: Vec<Flow>,
 }
 
 enum Life {
@@ -48,6 +50,7 @@ struct Context<'a> {
     index: &'a SiteIndex,
     /// Whether entity stocks were gathered into site order for this rule.
     entities_gathered: bool,
+    observe: bool,
 }
 
 /// One block's exclusive working set.
@@ -108,6 +111,7 @@ fn process_block(ctx: &Context, block: Block) -> Result<BlockOut, LabError> {
         dissipated: zero(),
         converted_in: zero(),
         converted_out: zero(),
+        flows: Vec::new(),
     };
     let outside = || LabError::Config("a delta's home site lies outside the site range the rule was asked to cover".into());
     // An entity-directed delta is at home in this block if the entity currently sits at one of its sites.
@@ -153,6 +157,11 @@ fn process_block(ctx: &Context, block: Block) -> Result<BlockOut, LabError> {
                 let produced = (u128::from(consumed) * u128::from(yield_num) / u128::from(yield_den)) as u64;
                 let leaked = leaked_amount(produced, leak_ppm, leak_draw);
                 let credited = block.ent_stock[base + rt].checked_add(produced - leaked).ok_or(LabError::Overflow("resource stock"))?;
+                if ctx.observe && produced > 0 {
+                    let meta = &ctx.entities[entity as usize];
+                    let released = if leak_to_sink { 0 } else { leaked };
+                    out.flows.push(Flow { entity: meta.id, site: meta.site, resource: to, taken: 0, released, produced });
+                }
                 if leaked > 0 {
                     let target = if leak_to_sink {
                         &mut out.dissipated[rt]
@@ -193,6 +202,14 @@ fn process_block(ctx: &Context, block: Block) -> Result<BlockOut, LabError> {
                     (Place::Local { site: from_site, entity: from_entity, slot: from_slot }, to_place) => {
                         let have = if from_entity { block.ent_stock[from_slot] } else { block.site_stock[from_slot] };
                         let moved = amount.min(have);
+                        if ctx.observe && moved > 0 {
+                            let record = |entity: u32, site: u32, taken, released| Flow { entity: ctx.entities[entity as usize].id, site, resource, taken, released, produced: 0 };
+                            match (from, to) {
+                                (Holder::Site(s), Holder::Entity(e)) => out.flows.push(record(e, s, moved, 0)),
+                                (Holder::Entity(e), Holder::Site(s)) => out.flows.push(record(e, s, 0, moved)),
+                                _ => {}
+                            }
+                        }
                         match to_place {
                             Place::Boundary => {
                                 out.dissipated[r] = out.dissipated[r].checked_add(moved).ok_or(LabError::Overflow("dissipation ledger"))?;
@@ -228,6 +245,7 @@ pub(crate) fn apply_blocks(
     proposals: &[Vec<Delta>],
     gathered: &mut Vec<u64>,
     pool: Option<&rayon::ThreadPool>,
+    mut observation: Option<&mut Observation>,
 ) -> Result<bool, LabError> {
     let k = state.k;
     let n_entities = state.entities.len();
@@ -245,7 +263,7 @@ pub(crate) fn apply_blocks(
         }
     }
 
-    let ctx = Context { k, n_sites: state.topo.n_sites(), entities: &state.entities, index, entities_gathered };
+    let ctx = Context { k, n_sites: state.topo.n_sites(), entities: &state.entities, index, entities_gathered, observe: observation.is_some() };
     let mut jobs = Vec::with_capacity(blocks.len());
     let mut sites_rest: &mut [u64] = &mut state.site_stock;
     let mut ents_rest: &mut [u64] = gathered;
@@ -285,6 +303,11 @@ pub(crate) fn apply_blocks(
         add(&mut state.ledger.converted_in, &out.converted_in, "conversion ledger")?;
         add(&mut state.ledger.converted_out, &out.converted_out, "conversion ledger")?;
     }
+    if let Some(seen) = observation.as_deref_mut() {
+        for out in &outs {
+            seen.extend(&out.flows);
+        }
+    }
     for out in &outs {
         for &(to, resource, amount) in &out.deposits {
             let stock = match to {
@@ -320,6 +343,17 @@ pub(crate) fn apply_blocks(
                         }
                         dead[e] = true;
                         let site = state.entities[e].site as usize;
+                        if let Some(seen) = observation.as_deref_mut() {
+                            let id = state.entities[e].id;
+                            seen.deaths.push(Death { tick: state.tick, id });
+                            if recycle {
+                                let held: Vec<Flow> = (0..k)
+                                    .filter(|r| state.ent_stock[e * k + r] > 0)
+                                    .map(|r| Flow { entity: id, site: site as u32, resource: r as u16, taken: 0, released: state.ent_stock[e * k + r], produced: 0 })
+                                    .collect();
+                                seen.extend(&held);
+                            }
+                        }
                         for r in 0..k {
                             let held = std::mem::take(&mut state.ent_stock[e * k + r]);
                             let target = if recycle { &mut state.site_stock[site * k + r] } else { &mut state.ledger.dissipated[r] };
@@ -343,6 +377,9 @@ pub(crate) fn apply_blocks(
                             state.ent_stock.push(share);
                         }
                         let mother = &state.entities[p];
+                        if let Some(seen) = observation.as_deref_mut() {
+                            seen.births.push(Birth { tick: state.tick, child: id, mother: mother.id });
+                        }
                         let child = EntityMeta { id, site: mother.site, parent: None, mother: Some(mother.id), born: state.tick };
                         state.entities.push(child);
                         state.genomes.push(genome);
@@ -378,5 +415,5 @@ pub(crate) fn apply_blocks(
 pub fn apply(state: &mut State, deltas: &[Delta]) -> Result<(), LabError> {
     let index = state.site_index();
     let n_sites = state.topo.n_sites();
-    apply_blocks(state, &index, std::slice::from_ref(&(0..n_sites)), std::slice::from_ref(&deltas.to_vec()), &mut Vec::new(), None).map(|_| ())
+    apply_blocks(state, &index, std::slice::from_ref(&(0..n_sites)), std::slice::from_ref(&deltas.to_vec()), &mut Vec::new(), None, None).map(|_| ())
 }

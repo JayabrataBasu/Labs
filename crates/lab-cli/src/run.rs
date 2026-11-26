@@ -1,5 +1,6 @@
 //! Running, checkpointing and resuming a simulation, and writing its manifest.
 use lab_core::config::{self, Config};
+use crate::observe::{ObserveCfg, Windows};
 use lab_core::{decode, encode, state_hash, Engine, LabError, State, FORMAT_VERSION};
 use serde_json::json;
 use std::path::Path;
@@ -47,16 +48,24 @@ impl Session {
     }
 }
 
+/// What a run writes besides its final checkpoint and manifest. None of it changes the trajectory.
+#[derive(Clone, Copy, Default)]
+pub struct Outputs {
+    pub checkpoint_every: Option<u64>,
+    pub series_every: Option<u64>,
+    pub observe: Option<ObserveCfg>,
+}
+
 /// Advances `ticks` ticks, writing checkpoints and finally the manifest into `out`.
 /// `after_tick` observes the state after each tick (and once before the first); it cannot change it.
 pub fn execute(
     session: &mut Session,
     ticks: u64,
     out: &Path,
-    checkpoint_every: Option<u64>,
-    series_every: Option<u64>,
+    outputs: Outputs,
     mut after_tick: impl FnMut(&State),
 ) -> Result<[u8; 32], LabError> {
+    let Outputs { checkpoint_every, series_every, observe } = outputs;
     let start_tick = session.state.tick;
     let end_tick = start_tick.checked_add(ticks).filter(|&t| t <= u64::from(u32::MAX)).ok_or_else(|| {
         LabError::Config(format!("tick limit exceeded: starting at tick {start_tick}, {ticks} more ticks would pass 2^32 - 1"))
@@ -68,6 +77,7 @@ pub fn execute(
         return Err(LabError::Config("--series-every must be at least 1".into()));
     }
     std::fs::create_dir_all(out).map_err(|e| LabError::Io(format!("cannot create {}: {e}", out.display())))?;
+    let mut windows = observe.map(|cfg| Windows::new(cfg, start_tick, end_tick, out)).transpose()?;
     let mut series = series_every.map(|_| series_header(&session.cfg.world.resources));
     let record = |state: &State, series: &mut Option<String>| {
         if let (Some(every), Some(text)) = (series_every, series.as_mut()) {
@@ -84,7 +94,10 @@ pub fn execute(
     after_tick(&session.state);
     while session.state.tick < end_tick {
         entity_ticks = entity_ticks.saturating_add(session.state.entities.len() as u64);
-        session.engine.step(&mut session.state)?;
+        match windows.as_mut() {
+            Some(windows) => windows.step(&session.engine, &mut session.state, &session.cfg.world.resources)?,
+            None => session.engine.step(&mut session.state)?,
+        }
         after_tick(&session.state);
         record(&session.state, &mut series);
         let tick = session.state.tick;
@@ -173,10 +186,9 @@ fn series_row(text: &mut String, state: &State) {
     text.push('\n');
 }
 
-/// Writes one CSV row per entity of a checkpoint: identity, lineage, stocks and genome.
+/// One CSV row per entity: identity, lineage, stocks and genome.
 /// Genome syntax: genes separated by `;`, each `kind:a>b@sense>=threshold*level` with resource indices.
-pub fn dump_entities(checkpoint: &Path, out: &Path) -> Result<usize, LabError> {
-    let (state, _) = decode(&read(checkpoint)?)?;
+pub fn entity_table(state: &State) -> String {
     let mut text = String::from("id,site,x,y,mother,born,genes");
     for r in 0..state.k {
         text += &format!(",stock_{r}");
@@ -197,8 +209,17 @@ pub fn dump_entities(checkpoint: &Path, out: &Path) -> Result<usize, LabError> {
             .collect();
         text += &format!(",{}\n", genome.join(";"));
     }
-    std::fs::write(out, text).map_err(|e| LabError::Io(format!("cannot write {}: {e}", out.display())))?;
+    text
+}
+
+pub fn dump_entities(checkpoint: &Path, out: &Path) -> Result<usize, LabError> {
+    let (state, _) = decode(&read(checkpoint)?)?;
+    write_text(out, &entity_table(&state))?;
     Ok(state.entities.len())
+}
+
+pub fn write_text(path: &Path, text: &str) -> Result<(), LabError> {
+    std::fs::write(path, text).map_err(|e| LabError::Io(format!("cannot write {}: {e}", path.display())))
 }
 
 /// Decodes a checkpoint and returns its tick and state hash.

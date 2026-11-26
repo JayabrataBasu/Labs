@@ -75,7 +75,8 @@ pub fn view(session: &mut Session, options: &ViewOptions) -> Result<[u8; 32], La
     let server_thread = std::thread::spawn(move || serve(&server, &server_shared));
 
     let hook_shared = Arc::clone(&shared);
-    let result = execute(session, options.ticks, options.out, options.checkpoint_every, options.series_every, |state| {
+    let outputs = crate::run::Outputs { checkpoint_every: options.checkpoint_every, series_every: options.series_every, observe: None };
+    let result = execute(session, options.ticks, options.out, outputs, |state| {
         publish(&hook_shared, state);
         if state.tick < end_tick {
             wait_for_permission(&hook_shared);
