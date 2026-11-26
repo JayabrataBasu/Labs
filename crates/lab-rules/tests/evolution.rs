@@ -18,7 +18,7 @@ fn world(size: (u32, u32), site: [u64; 4], entities: u64, ent: [u64; 4], genome:
 fn rule(id: &str, stream: u16, params: &str) -> String {
     let version = match id {
         "metabolism.genes" => 3,
-        "reproduction.division" => 2,
+        "reproduction.division" => 3,
         _ => 1,
     };
     format!("[[rules]]\nid = \"{id}\"\nversion = {version}\nstream = {stream}\nparams = {{ {params} }}\n")
@@ -134,7 +134,7 @@ fn sensing_gates_expression() {
 
 #[test]
 fn division_splits_stocks_and_records_lineage() {
-    let division = rule("reproduction.division", 2, &format!("requires = [{{ resource = \"E\", threshold = 10 }}], site_capacity = 3, {NO_MUTATION}"));
+    let division = rule("reproduction.division", 3, &format!("requires = [{{ resource = \"E\", threshold = 10, consume = 0 }}], site_capacity = 3, {NO_MUTATION}"));
     let genome = gene("uptake", "resource = \"A\"", 1, "always", 0);
     let text = world((1, 1), [0; 4], 1, [11, 5, 0, 0], &genome, &division);
     let s = run(&text, 1, 1);
@@ -183,14 +183,34 @@ fn random_birth_and_death_ignore_stocks() {
 
 #[test]
 fn division_needs_every_required_resource() {
-    let both = rule("reproduction.division", 2, &format!("requires = [{{ resource = \"E\", threshold = 10 }}, {{ resource = \"B\", threshold = 4 }}], site_capacity = 9, {NO_MUTATION}"));
+    let both = rule("reproduction.division", 3, &format!("requires = [{{ resource = \"E\", threshold = 10, consume = 0 }}, {{ resource = \"B\", threshold = 4, consume = 0 }}], site_capacity = 9, {NO_MUTATION}"));
     let births = |stock: [u64; 4]| run(&world((1, 1), [0; 4], 1, stock, "", &both), 1, 1).births;
     assert_eq!(births([100, 0, 3, 0]), 0, "rich in energy but short of B");
     assert_eq!(births([9, 0, 100, 0]), 0, "rich in B but short of energy");
     assert_eq!(births([10, 0, 4, 0]), 1);
-    let none = rule("reproduction.division", 2, &format!("requires = [], site_capacity = 9, {NO_MUTATION}"));
+    let none = rule("reproduction.division", 3, &format!("requires = [], site_capacity = 9, {NO_MUTATION}"));
     let e = parse(&world((1, 1), [0; 4], 0, [0; 4], "", &none)).and_then(|(c, _)| lab_rules::build(&c).map(|_| ())).unwrap_err();
     assert!(e.to_string().contains("requires"), "{e}");
+}
+
+#[test]
+fn division_spends_what_it_consumes_before_splitting() {
+    let division = |capacity: u32, consume_e: u32| {
+        rule("reproduction.division", 3, &format!("requires = [{{ resource = \"E\", threshold = 10, consume = {consume_e} }}, {{ resource = \"B\", threshold = 4, consume = 4 }}], site_capacity = {capacity}, {NO_MUTATION}"))
+    };
+    let start = [11, 3, 5, 0];
+    let s = run(&world((1, 1), [0; 4], 1, start, "", &division(9, 6)), 1, 1);
+    // E: 11 - 6 = 5, offspring 2. B: 5 - 4 = 1, offspring 0. A is not required: 3, offspring 1.
+    assert_eq!(s.ent_stock, vec![3, 2, 1, 0, 2, 1, 0, 0]);
+    assert_eq!(s.ledger.dissipated, vec![6, 0, 4, 0], "the spent building material leaves the system");
+    let full = run(&world((1, 1), [0; 4], 1, start, "", &division(1, 6)), 1, 1);
+    assert_eq!((full.births, full.ent_stock, full.ledger.dissipated), (0, start.to_vec(), vec![0; 4]), "nothing is spent without a birth");
+    let text = world((1, 1), [0; 4], 0, [0; 4], "", &division(1, 11));
+    let e = parse(&text).and_then(|(c, _)| lab_rules::build(&c).map(|_| ())).unwrap_err();
+    assert!(e.to_string().contains("consume"), "{e}");
+    let twice = rule("reproduction.division", 3, &format!("requires = [{{ resource = \"E\", threshold = 4, consume = 3 }}, {{ resource = \"E\", threshold = 4, consume = 3 }}], site_capacity = 9, {NO_MUTATION}"));
+    let e = parse(&world((1, 1), [0; 4], 0, [0; 4], "", &twice)).and_then(|(c, _)| lab_rules::build(&c).map(|_| ())).unwrap_err();
+    assert!(e.to_string().contains("twice"), "{e}");
 }
 
 #[test]

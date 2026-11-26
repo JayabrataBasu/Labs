@@ -1,0 +1,46 @@
+# EXPLORATORY round 3, the last (DR-019): the corrected world (end products decay, division spends
+# building material) with every null arm, to choose the registered design and its number of seeds.
+# N3 probabilities come from `python -m evolab calibrate` on a seed-1 intact run of 5000 ticks.
+name = "explore-3-blackqueen"
+base_config = "../configs/blackqueen.toml"
+ticks = 10000
+series_every = 500
+threads = 1
+seeds = [1, 2, 3, 4, 5]
+primary_outcome = "complementary"
+aim = "How do dependence, partner association and capability loss differ between the intact world and its nulls?"
+estimand = "Per arm, the distribution over seeds of each measure averaged over the last windows."
+analysis_plan = "Exploratory: no inference. Use to choose a registered design."
+
+[observe]
+window = 20
+count = 8
+flux_radius = 1
+contact_radius = 0
+min_share = 0.05
+min_fraction = 0.05
+permutations = 20
+shuffle_seed = 1
+counterfactual_pairs = 0
+counterfactual_ticks = 100
+keep_raw = false
+
+[[arms]]
+name = "intact"
+transforms = []
+
+[[arms]]
+name = "N1a_no_secretion"
+transforms = [{ name = "null.no_secretion" }]
+
+[[arms]]
+name = "N1b_no_recycling"
+transforms = [{ name = "null.no_recycling" }]
+
+[[arms]]
+name = "N2_well_mixed"
+transforms = [{ name = "null.well_mixed" }]
+
+[[arms]]
+name = "N3_neutral"
+transforms = [{ name = "null.neutral", birth_ppm = 87500, death_ppm = 2854 }]

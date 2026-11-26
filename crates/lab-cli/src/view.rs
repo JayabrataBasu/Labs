@@ -1,11 +1,12 @@
 //! Read-only live viewer. The simulation publishes a copy of what the page needs after each
 //! tick; HTTP handlers only ever read that copy, so observing a run cannot change it.
+use crate::live::Gate;
 use crate::run::{execute, hex, Session};
 use lab_core::{LabError, State};
 use serde_json::json;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tiny_http::{Header, Method, Request, Response, Server};
 
@@ -31,16 +32,9 @@ struct Snapshot {
     final_hash: Option<String>,
 }
 
-struct Control {
-    paused: bool,
-    /// Single-step permits granted while paused.
-    steps: u64,
-}
-
 struct Shared {
     snapshot: Mutex<Snapshot>,
-    control: Mutex<Control>,
-    wake: Condvar,
+    gate: Gate,
     shutdown: AtomicBool,
     meta: serde_json::Value,
     k: usize,
@@ -57,8 +51,7 @@ pub fn view(session: &mut Session, options: &ViewOptions) -> Result<[u8; 32], La
     let end_tick = session.state.tick.saturating_add(options.ticks);
     let shared = Arc::new(Shared {
         snapshot: Mutex::new(Snapshot::default()),
-        control: Mutex::new(Control { paused: options.start_paused, steps: 0 }),
-        wake: Condvar::new(),
+        gate: Gate::new(options.start_paused),
         shutdown: AtomicBool::new(false),
         meta: json!({
             "width": session.cfg.world.width,
@@ -78,9 +71,7 @@ pub fn view(session: &mut Session, options: &ViewOptions) -> Result<[u8; 32], La
     let outputs = crate::run::Outputs { checkpoint_every: options.checkpoint_every, series_every: options.series_every, observe: None };
     let result = execute(session, options.ticks, options.out, outputs, |state| {
         publish(&hook_shared, state);
-        if state.tick < end_tick {
-            wait_for_permission(&hook_shared);
-        }
+        state.tick >= end_tick || hook_shared.gate.wait()
     });
     if let Ok(hash) = &result {
         shared.snapshot.lock().expect("snapshot lock").final_hash = Some(hex(hash));
@@ -103,18 +94,6 @@ fn publish(shared: &Shared, state: &State) {
     }
 }
 
-/// Blocks while paused, unless a single-step permit is available.
-fn wait_for_permission(shared: &Shared) {
-    let mut control = shared.control.lock().expect("control lock");
-    while control.paused {
-        if control.steps > 0 {
-            control.steps -= 1;
-            return;
-        }
-        control = shared.wake.wait(control).expect("control lock");
-    }
-}
-
 fn serve(server: &Server, shared: &Shared) {
     while !shared.shutdown.load(Ordering::SeqCst) {
         if let Ok(Some(request)) = server.recv_timeout(Duration::from_millis(50)) {
@@ -134,7 +113,7 @@ fn handle(mut request: Request, shared: &Shared) {
         (Method::Get, "/") => Response::from_string(PAGE).with_header(header("Content-Type", "text/html; charset=utf-8")),
         (Method::Get, "/meta") => {
             let snapshot = shared.snapshot.lock().expect("snapshot lock");
-            let paused = shared.control.lock().expect("control lock").paused;
+            let paused = shared.gate.paused();
             let mut meta = shared.meta.clone();
             meta["tick"] = json!(snapshot.tick);
             meta["paused"] = json!(paused);
@@ -149,29 +128,10 @@ fn handle(mut request: Request, shared: &Shared) {
         (Method::Post, "/control") => {
             let mut body = String::new();
             let _ = request.as_reader().read_to_string(&mut body);
-            let mut control = shared.control.lock().expect("control lock");
-            let known = match body.trim() {
-                "pause" => {
-                    control.paused = true;
-                    true
-                }
-                "resume" => {
-                    control.paused = false;
-                    control.steps = 0;
-                    true
-                }
-                "step" => {
-                    control.steps += 1;
-                    true
-                }
-                _ => false,
-            };
-            drop(control);
-            shared.wake.notify_all();
-            if known {
+            if shared.gate.command(body.trim()) {
                 Response::from_string("ok")
             } else {
-                Response::from_string("control must be pause, resume or step").with_status_code(400)
+                Response::from_string("control must be pause, resume, step or stop").with_status_code(400)
             }
         }
         _ => Response::from_string("not found").with_status_code(404),

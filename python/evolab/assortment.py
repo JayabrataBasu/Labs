@@ -1,6 +1,7 @@
 """Are complementary partners found together more often than chance? Exact, no flux estimator.
 
-A neighbour j (within `radius`) **supplies** dependant i if j can make a product i depends on. The
+A dependant is an entity that depends on a leaked product (what only the dead give back has no
+living partner). A neighbour j (within `radius`) **supplies** dependant i if j builds that product. The
 relation is **reciprocal** if i also supplies j. The null (N4) keeps every position and every genome
 but deals the genomes to positions at random, so it has the same abundances and the same crowding.
 `excess` = observed fraction minus the mean over permutations: positive means complementary
@@ -42,7 +43,7 @@ def measure(entities, chemistry, width, height, wrap, radius, permutations, seed
     cache, kinds, at = {}, [], {}
     for n, e in enumerate(entities):
         if e.genome not in cache:
-            cache[e.genome] = (capability.dependencies(e.genome, chemistry), capability.makes(e.genome, chemistry))
+            cache[e.genome] = (capability.leaked_dependencies(e.genome, chemistry), capability.makes(e.genome, chemistry))
         kinds.append(cache[e.genome])
         at.setdefault(e.site, []).append(n)
     reached = {}

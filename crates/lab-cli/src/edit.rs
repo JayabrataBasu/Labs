@@ -5,11 +5,12 @@
 //! load. The page contains no science: it edits the declarative config and nothing else.
 use lab_core::config::{parse, Config};
 use lab_core::LabError;
+use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 use tiny_http::{Header, Method, Request, Response, Server};
 
-const PAGE: &str = include_str!("editor.html");
+pub const PAGE: &str = include_str!("editor.html");
 const BIND_ADDRESS: &str = "127.0.0.1";
 
 /// A config as the page sees it. The seed travels as a string so JavaScript cannot round it.
@@ -44,19 +45,79 @@ pub fn edit(config_path: &Path, port: u16) -> Result<(), LabError> {
     }
 }
 
-fn header(name: &str, value: &str) -> Header {
+pub type Reply = Response<std::io::Cursor<Vec<u8>>>;
+/// Largest request body any of the local pages needs to send.
+const MAX_BODY: usize = 1 << 20;
+
+pub fn header(name: &str, value: &str) -> Header {
     Header::from_bytes(name.as_bytes(), value.as_bytes()).expect("static header is valid")
 }
 
-fn json_response(status: u16, value: serde_json::Value) -> Response<std::io::Cursor<Vec<u8>>> {
+pub fn json_response(status: u16, value: serde_json::Value) -> Reply {
     Response::from_string(value.to_string()).with_status_code(status).with_header(header("Content-Type", "application/json"))
 }
 
-fn host_ok(request: &Request, port: u16) -> bool {
+pub fn error(status: u16, message: impl std::fmt::Display) -> Reply {
+    json_response(status, serde_json::json!({ "error": message.to_string() }))
+}
+
+pub fn html(page: impl Into<String>) -> Reply {
+    Response::from_string(page.into()).with_header(header("Content-Type", "text/html; charset=utf-8"))
+}
+
+pub fn host_ok(request: &Request, port: u16) -> bool {
     request.headers().iter().find(|h| h.field.equiv("Host")).is_some_and(|h| {
         let host = h.value.as_str();
         host == format!("127.0.0.1:{port}") || host == format!("localhost:{port}")
     })
+}
+
+/// The JSON body of a POST. A cross-origin page cannot send application/json without a preflight,
+/// which these servers never grant.
+pub fn read_json(request: &mut Request) -> Result<serde_json::Value, Reply> {
+    let is_json = request.headers().iter().any(|h| h.field.equiv("Content-Type") && h.value.as_str().starts_with("application/json"));
+    if !is_json {
+        return Err(error(415, "expected application/json"));
+    }
+    if request.body_length().is_some_and(|n| n > MAX_BODY) {
+        return Err(error(413, "request body too large"));
+    }
+    let mut body = Vec::new();
+    request.as_reader().take(MAX_BODY as u64 + 1).read_to_end(&mut body).map_err(|e| error(400, e))?;
+    if body.len() > MAX_BODY {
+        return Err(error(413, "request body too large"));
+    }
+    serde_json::from_slice(&body).map_err(|e| error(400, e))
+}
+
+pub fn config_response(path: &Path) -> Reply {
+    match std::fs::read_to_string(path)
+        .map_err(|e| LabError::Io(format!("cannot read {}: {e}", path.display())))
+        .and_then(|text| parse(&text).map(|(cfg, _)| cfg))
+        .and_then(|cfg| config_to_json(&cfg))
+    {
+        Ok(value) => json_response(200, value),
+        Err(e) => error(400, e),
+    }
+}
+
+pub fn catalog_response() -> Reply {
+    let rules: Vec<_> = lab_rules::CATALOG
+        .iter()
+        .map(|(id, about, params)| serde_json::json!({ "id": id, "version": lab_rules::version_of(id), "about": about, "params": serde_json::from_str::<serde_json::Value>(params).expect("catalog JSON is valid") }))
+        .collect();
+    json_response(200, serde_json::Value::Array(rules))
+}
+
+pub fn save_response(request: &mut Request, config_path: &Path) -> Reply {
+    let value = match read_json(request) {
+        Ok(value) => value,
+        Err(reply) => return reply,
+    };
+    match json_to_toml(value) {
+        Ok(text) => save(config_path, &text),
+        Err(e) => error(400, e),
+    }
 }
 
 pub fn handle(mut request: Request, config_path: &Path, port: u16) {
@@ -67,42 +128,16 @@ pub fn handle(mut request: Request, config_path: &Path, port: u16) {
     }
     let url = request.url().to_string();
     let response = match (request.method(), url.as_str()) {
-        (Method::Get, "/") => Response::from_string(PAGE).with_header(header("Content-Type", "text/html; charset=utf-8")),
-        (Method::Get, "/config") => match std::fs::read_to_string(config_path)
-            .map_err(|e| LabError::Io(format!("cannot read {}: {e}", config_path.display())))
-            .and_then(|text| parse(&text).map(|(cfg, _)| cfg))
-            .and_then(|cfg| config_to_json(&cfg))
-        {
-            Ok(value) => json_response(200, value),
-            Err(e) => json_response(400, serde_json::json!({ "error": e.to_string() })),
-        },
-        (Method::Get, "/catalog") => {
-            let rules: Vec<_> = lab_rules::CATALOG
-                .iter()
-                .map(|(id, about, params)| serde_json::json!({ "id": id, "version": lab_rules::version_of(id), "about": about, "params": serde_json::from_str::<serde_json::Value>(params).expect("catalog JSON is valid") }))
-                .collect();
-            json_response(200, serde_json::Value::Array(rules))
-        }
-        (Method::Post, "/save") => {
-            // A cross-origin page cannot send application/json without a preflight, which this server never grants.
-            let is_json = request.headers().iter().any(|h| h.field.equiv("Content-Type") && h.value.as_str().starts_with("application/json"));
-            if !is_json {
-                json_response(415, serde_json::json!({ "error": "expected application/json" }))
-            } else {
-                let mut body = String::new();
-                let _ = request.as_reader().read_to_string(&mut body);
-                match serde_json::from_str::<serde_json::Value>(&body).map_err(|e| LabError::Config(e.to_string())).and_then(json_to_toml) {
-                    Ok(text) => save(config_path, &text),
-                    Err(e) => json_response(400, serde_json::json!({ "error": e.to_string() })),
-                }
-            }
-        }
+        (Method::Get, "/") => html(PAGE),
+        (Method::Get, "/config") => config_response(config_path),
+        (Method::Get, "/catalog") => catalog_response(),
+        (Method::Post, "/save") => save_response(&mut request, config_path),
         _ => Response::from_string("not found").with_status_code(404),
     };
     let _ = request.respond(response.with_header(header("Cache-Control", "no-store")));
 }
 
-fn save(config_path: &Path, text: &str) -> Response<std::io::Cursor<Vec<u8>>> {
+fn save(config_path: &Path, text: &str) -> Reply {
     let backup = config_path.with_extension("toml.bak");
     if config_path.exists() {
         if let Err(e) = std::fs::copy(config_path, &backup) {

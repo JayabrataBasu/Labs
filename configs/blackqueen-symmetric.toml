@@ -2,7 +2,9 @@
 # and is turned into three things: E (private; pays upkeep, starvation), and B and C (both leaky,
 # both needed with E to divide). The two public goods are exactly alike, so any asymmetry between
 # them in a run comes from history, not from the chemistry.
-# Stream numbers are the rule's position (sweeps refer to them: 8 metabolism, 11 division, 12 movement).
+# Sweeps refer to rules by stream number: 8 metabolism, 11 division, 12 movement.
+# Every resource lying on a site decays, so what the dead leave behind does not last, and division
+# spends building material, so what is needed must keep being made.
 schema_version = 2
 seed = 1
 
@@ -71,6 +73,12 @@ stream = 7
 params = { resource = "C", divisor = 10 }
 
 [[rules]]
+id = "decay.fraction"
+version = 1
+stream = 13
+params = { resource = "E", divisor = 10 }
+
+[[rules]]
 id = "metabolism.genes"
 version = 3
 stream = 8
@@ -90,9 +98,9 @@ params = { probability_ppm = 5000, recycle = true }
 
 [[rules]]
 id = "reproduction.division"
-version = 2
+version = 3
 stream = 11
-params = { requires = [{ resource = "E", threshold = 120 }, { resource = "B", threshold = 120 }, { resource = "C", threshold = 120 }], site_capacity = 4, mutation = { point_ppm = 20000, point_magnitude = 5, retarget_ppm = 2000, duplicate_ppm = 2000, delete_ppm = 10000, max_genes = 16, kinds = ["uptake", "convert", "secrete"] } }
+params = { requires = [{ resource = "E", threshold = 120, consume = 60 }, { resource = "B", threshold = 120, consume = 60 }, { resource = "C", threshold = 120, consume = 60 }], site_capacity = 4, mutation = { point_ppm = 20000, point_magnitude = 5, retarget_ppm = 2000, duplicate_ppm = 2000, delete_ppm = 10000, max_genes = 16, kinds = ["uptake", "convert", "secrete"] } }
 
 [[rules]]
 id = "move.random"

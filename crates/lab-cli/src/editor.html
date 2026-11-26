@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<link rel="icon" href="data:,">
 <title>Lab world editor</title>
 <style>
   :root { color-scheme: dark; }
@@ -87,8 +88,9 @@ const $ = id => document.getElementById(id);
 const COLORS = ['#e8b64a', '#4aa8e8', '#9b6be8', '#58c47a', '#e86b8a', '#6be8d9', '#d9e86b', '#e8864a'];
 let cfg = null, catalog = [], drag = null, preview = null;
 
+// In the studio the page is opened as /editor?world=NAME; the same query selects the file.
 async function api(path, options) {
-  const response = await fetch(path, options);
+  const response = await fetch(path + location.search, options);
   const body = await response.json();
   if (!response.ok) throw new Error(body.error || response.statusText);
   return body;

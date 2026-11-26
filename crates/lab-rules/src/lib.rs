@@ -64,8 +64,8 @@ pub const CATALOG: &[(&str, &str, &str)] = &[
     (environment::RELOCATE_ID, "Entities jump to any site: removes spatial structure (null world N2)", r#"{"probability_ppm":100000}"#),
     (
         lifecycle::DIVISION_ID,
-        "Entities holding enough of every required resource divide; offspring may mutate",
-        r#"{"requires":[{"resource":"$R0","threshold":200}],"site_capacity":4,"mutation":{"point_ppm":20000,"point_magnitude":5,"retarget_ppm":2000,"duplicate_ppm":2000,"delete_ppm":5000,"max_genes":16,"kinds":["uptake","convert","secrete"]}}"#,
+        "Entities holding enough of every required resource spend some of it and divide; offspring may mutate",
+        r#"{"requires":[{"resource":"$R0","threshold":200,"consume":100}],"site_capacity":4,"mutation":{"point_ppm":20000,"point_magnitude":5,"retarget_ppm":2000,"duplicate_ppm":2000,"delete_ppm":5000,"max_genes":16,"kinds":["uptake","convert","secrete"]}}"#,
     ),
     (
         lifecycle::RANDOM_BIRTH_ID,
@@ -86,7 +86,7 @@ pub const CATALOG: &[(&str, &str, &str)] = &[
 pub fn version_of(id: &str) -> u32 {
     match id {
         metabolism::ID => 3,
-        lifecycle::DIVISION_ID => 2,
+        lifecycle::DIVISION_ID => 3,
         _ => 1,
     }
 }

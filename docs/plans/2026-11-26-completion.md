@@ -107,3 +107,12 @@ A → B → C → D (starts) → F (studio core) → E → F (finish) → D repo
 - E (DR-022 details): guests take no room on a site; `site_capacity` also bounds the guests per host, and a guest's offspring stays in its host. `max_guests` limits binding and re-assignment only. A dead guest's stocks go to its host; a dead host frees its guests. Observation records site exchange only, not host-guest exchange.
 - E: `metabolism.genes` is now version 3 (`guests_trade_with`) and mutation lists the gene kinds it may produce. Worlds without containment give the same series as before (checked on all five).
 - E (exploratory observation, seed 1): in configs/containment.toml bind genes persist and a few percent of entities are guests at tick 6000. Not evidence.
+- D (2026-11-26): exploration rounds 1-2 used a flawed world and measure (DR-024); do not cite their dependence numbers. After the fix the construct check passes again (positive control dependent 1.00, complementary 1; negative 0, 0).
+
+## Resume here
+1. Confirm CI is green on branch `studio` (`gh run list --branch studio`), then merge to `master`.
+2. Round 3 (last exploratory) was started detached into `runs/explore3/` (log.txt; specs `experiments/explore-3-*.toml`).
+3. Write `docs/experiments/EXPLORATION.md` (rounds 1-3), freeze the RQ1 spec with seeds >= 1000, run, write RQ1-REPORT.md.
+   Prior work: Wang et al. 2021 (PMC8115099), Meijer et al. 2020 (PMC7391776), Pande et al. 2016 (PMC5029186),
+   Germerodt et al. 2016 (PMC4912067). Abstracts only were read; claim no novelty.
+4. Write `docs/BUG-SWEEP.md`; README steps from a clean clone; Firefox check.

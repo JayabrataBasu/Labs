@@ -152,7 +152,7 @@ fn a_dead_host_frees_its_guests_and_a_dead_guest_returns_its_stocks_to_the_host(
 
 #[test]
 fn offspring_inherit_guests_by_lineage_or_at_random() {
-    let divide = ("reproduction.division", 2, format!("requires = [{{ resource = \"E\", threshold = 50 }}], site_capacity = 100, {NO_MUTATION}"));
+    let divide = ("reproduction.division", 3, format!("requires = [{{ resource = \"E\", threshold = 50, consume = 0 }}], site_capacity = 100, {NO_MUTATION}"));
     let partition = |mode: &str, ppm: u32| ("containment.partition", 1, format!("probability_ppm = {ppm}, mode = \"{mode}\", max_guests = 8"));
     // One rich pair: whoever is host divides; guests of the mother go to the daughter.
     let founders = [(1, [60, 0], bind("A")), (1, [0, 0], bind("A"))];
@@ -200,7 +200,7 @@ fn containment_worlds_replay_resume_and_conserve() {
         ("containment.share", 1, "resources = [\"E\", \"A\"], divisor = 4".into()),
         ("death.starvation", 1, "resource = \"E\", recycle = true".into()),
         ("death.random", 1, "probability_ppm = 20000, recycle = true".into()),
-        ("reproduction.division", 2, "requires = [{ resource = \"E\", threshold = 40 }], site_capacity = 4, mutation = { point_ppm = 30000, point_magnitude = 4, retarget_ppm = 20000, duplicate_ppm = 10000, delete_ppm = 10000, max_genes = 12, kinds = [\"uptake\", \"convert\", \"secrete\", \"bind\"] }".into()),
+        ("reproduction.division", 3, "requires = [{ resource = \"E\", threshold = 40, consume = 20 }], site_capacity = 4, mutation = { point_ppm = 30000, point_magnitude = 4, retarget_ppm = 20000, duplicate_ppm = 10000, delete_ppm = 10000, max_genes = 12, kinds = [\"uptake\", \"convert\", \"secrete\", \"bind\"] }".into()),
         ("containment.partition", 1, "probability_ppm = 500000, mode = \"random\", max_guests = 3".into()),
         ("containment.release", 1, "probability_ppm = 10000".into()),
         ("move.random", 1, "probability_ppm = 100000".into()),

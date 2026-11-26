@@ -11,7 +11,8 @@ from evolab import assortment, capability, counterfactual, data, flux, groups, m
 
 # resources: 0=E 1=F 2=A 3=B 4=C
 E, F, A, B, C = range(5)
-CHEM = [(A, B, 200000), (A, C, 200000), (B, E, 0), (C, F, 0)]
+CHEM = capability.Chemistry(reactions=((A, B, 200000), (A, C, 200000), (B, E, 0), (C, F, 0)),
+                            needs=frozenset({E, F}), primary=frozenset({A}))
 
 
 def genome(text):
@@ -21,6 +22,8 @@ def genome(text):
 FULL = "uptake:2>2@always*60;convert:2>3@always*30;convert:2>4@always*30;uptake:3>3@always*30;uptake:4>4@always*30;convert:3>0@always*30;convert:4>1@always*30"
 NEEDS_B = "uptake:2>2@always*60;convert:2>4@always*30;uptake:3>3@always*30;convert:3>0@always*30;convert:4>1@always*30"
 NEEDS_C = "uptake:2>2@always*60;convert:2>3@always*30;uptake:4>4@always*30;convert:3>0@always*30;convert:4>1@always*30"
+# Builds E and B itself; has lost C -> F and takes F up, which only the dead (or secretion) put there.
+NEEDS_F = "uptake:2>2@always*60;convert:2>3@always*30;uptake:3>3@always*30;convert:3>0@always*30;uptake:1>1@always*30"
 
 
 class Capability(unittest.TestCase):
@@ -41,6 +44,42 @@ class Capability(unittest.TestCase):
         # A gene with level 0 does nothing.
         self.assertEqual(capability.dependencies(genome(FULL.replace("convert:2>3@always*30", "convert:2>3@always*0")), CHEM), frozenset({B}))
 
+    def test_dependence_covers_end_products_taken_from_others(self):
+        self.assertEqual(capability.dependencies(genome(NEEDS_F), CHEM), frozenset({F}))
+        self.assertEqual(capability.leaked_dependencies(genome(NEEDS_F), CHEM), frozenset())
+        # Without the uptake it cannot get F from anyone: it is not living off others.
+        self.assertEqual(capability.dependencies(genome(NEEDS_F.replace("uptake:1>1@always*30", "uptake:1>1@always*0")), CHEM), frozenset())
+        # Taking up what it can also build itself is not dependence.
+        self.assertEqual(capability.dependencies(genome(FULL + ";uptake:1>1@always*30"), CHEM), frozenset())
+
+    def test_dependence_covers_resources_the_world_requires_directly(self):
+        # Symmetric world: B and C are needed to divide and are not converted into anything.
+        world = capability.Chemistry(reactions=((A, E, 0), (A, B, 200000), (A, C, 200000)), needs=frozenset({E, B, C}), primary=frozenset({A}))
+        lost_b = genome("uptake:2>2@always*90;convert:2>0@always*30;convert:2>4@always*30;uptake:3>3@always*30;uptake:4>4@always*30")
+        self.assertEqual(capability.dependencies(lost_b, world), frozenset({B}))
+        self.assertEqual(capability.makes(lost_b, world), frozenset({C}))
+
+    def test_world_requirements_and_outside_supply_come_from_the_config(self):
+        config = {"world": {"resources": ["E", "F", "A", "B", "C"]}, "rules": [
+            {"id": "influx.constant", "params": {"resource": "A"}},
+            {"id": "metabolism.genes", "params": {"energy": "E", "reactions": [{"from": "A", "to": "B", "leak_ppm": 5}, {"from": "B", "to": "E", "leak_ppm": 0}]}},
+            {"id": "death.starvation", "params": {"resource": "E"}},
+            {"id": "reproduction.division", "params": {"requires": [{"resource": "F", "threshold": 1}]}}]}
+        world = capability.chemistry_of(config)
+        self.assertEqual(world.reactions, ((A, B, 5), (B, E, 0)))
+        self.assertEqual(world.needs, frozenset({E, F}))
+        self.assertEqual(world.primary, frozenset({F, A, C}), "supplied from outside, or made by no reaction")
+
+    def test_complementary_means_each_side_builds_what_the_other_lacks(self):
+        neither = genome("uptake:2>2@always*60;uptake:3>3@always*30;uptake:4>4@always*30;convert:3>0@always*30;convert:4>1@always*30")
+        self.assertEqual(capability.dependencies(neither, CHEM), frozenset({B, C}))
+        s = capability.summary([genome(FULL)] * 8 + [neither] * 2, CHEM, 0.1)
+        self.assertEqual((s["dependent_on_3"], s["dependent_on_4"], s["complementary"]), (0.2, 0.2, 0))
+        lost = capability.summary([genome(FULL)] * 8 + [genome(NEEDS_B), genome("uptake:2>2@always*60")], CHEM, 0.05)
+        self.assertEqual((lost["lacking_leaked"], lost["builds_3"], lost["builds_4"]), (0.2, 0.8, 0.9), "whether or not they can get it elsewhere")
+        mixed = capability.summary([genome(FULL)] * 8 + [genome(NEEDS_B), genome(NEEDS_F)], CHEM, 0.05)
+        self.assertEqual((mixed["dependent_fraction"], mixed["dependent_fraction_leaked"], mixed["dependent_on_1"]), (0.2, 0.1, 0.1))
+
     def test_summary_and_complementary_coexistence(self):
         pop = [genome(FULL)] * 6 + [genome(NEEDS_B)] * 2 + [genome(NEEDS_C)] * 2
         s = capability.summary(pop, CHEM, min_fraction=0.1)
@@ -54,6 +93,10 @@ class Assortment(unittest.TestCase):
         self.assertEqual(capability.makes(genome(FULL), CHEM), frozenset({B, C}))
         self.assertEqual(capability.makes(genome(NEEDS_B), CHEM), frozenset({C}))
         self.assertEqual(capability.makes(genome(FULL.replace("uptake:2>2@always*60;", "")), CHEM), frozenset())
+
+    def test_living_partners_are_only_sought_for_leaked_products(self):
+        one_site = self.measure([[NEEDS_F, FULL]])
+        self.assertIsNone(one_site["supplied_fraction"], "F is not released by the living: no partner relation")
 
     def layout(self, rows):
         """One site per row of a 1-wide lattice; each row lists the genomes living there."""

@@ -1,9 +1,9 @@
-"""python -m evolab freeze|run|report|check ... (set PYTHONPATH=python)"""
+"""python -m evolab freeze|run|report|html|check|calibrate ... (set PYTHONPATH=python)"""
 import argparse
 import sys
 from pathlib import Path
 
-from . import analysis, runner, spec
+from . import analysis, calibrate, report, runner, spec
 
 
 def main(argv=None):
@@ -19,9 +19,16 @@ def main(argv=None):
     p = sub.add_parser("report", help="distributions of an outcome over seeds, per arm and sweep point")
     p.add_argument("results")
     p.add_argument("--metric", required=True)
+    p = sub.add_parser("html", help="write a self-contained report.html with charts into the results folder")
+    p.add_argument("results")
     p = sub.add_parser("check", help="construct check of an outcome")
     p.add_argument("results")
     p.add_argument("--metric", required=True)
+    p = sub.add_parser("calibrate", help="birth and death probabilities for the neutral null that match a finished run")
+    p.add_argument("run", help="folder of one intact run (manifest.json and series.csv)")
+    p.add_argument("--from-tick", type=int, required=True, help="measure demography from this tick on")
+    p.add_argument("--ticks", type=int, required=True, help="length of each trial run")
+    p.add_argument("--work", required=True, help="folder for the trial runs")
     a = ap.parse_args(argv)
     if a.cmd == "freeze":
         r = spec.freeze(a.spec)
@@ -34,6 +41,11 @@ def main(argv=None):
         print(f"{'arm':<22}{'point':<28}{'n':>3}{'mean':>12}{'sd':>10}{'min':>10}{'median':>10}{'max':>10}")
         for r in analysis.table(rows, a.metric):
             print(f"{r['arm']:<22}{r['point']:<28}{r['n']:>3}{r['mean']:>12.1f}{r['sd']:>10.1f}{r['min']:>10.0f}{r['median']:>10.0f}{r['max']:>10.0f}")
+    elif a.cmd == "html":
+        print(f"wrote {report.write(a.results)}")
+    elif a.cmd == "calibrate":
+        for key, value in calibrate.run(runner.lab_binary(), a.run, a.from_tick, a.ticks, a.work).items():
+            print(f"{key} = {value:.0f}")
     elif a.cmd == "check":
         ok_all = True
         for ok, msg in analysis.construct_check(analysis.load_summary(a.results), a.metric):

@@ -87,7 +87,7 @@ def shuffle_profiles(flows, rng):
 
 def exchange_resources(config):
     """Resources entities can pass to each other: products of reactions."""
-    return sorted({b for _, b, _ in capability.chemistry_of(config)})
+    return capability.products(capability.chemistry_of(config))
 
 
 def neighbour_pairs(window, radius, dependencies):
@@ -172,7 +172,7 @@ def analyse_window(window, chemistry, resources, settings):
     out.update(assortment.measure(list(window.entities_end.values()), chemistry, window.width, window.height, window.wrap,
                                   settings["contact_radius"], settings["permutations"], settings["shuffle_seed"] + window.start))
     # Price: trait = number of leaked products an individual depends on.
-    deps = {i: capability.dependencies(e.genome, chemistry) for i, e in window.entities_start.items()}
+    deps = {i: capability.leaked_dependencies(e.genome, chemistry) for i, e in window.entities_start.items()}
     parts = price.partition(price.window_fitness(window), {i: float(len(d)) for i, d in deps.items()}, d2)
     for key in ("selection", "between", "within"):
         out[f"price_{key}"] = parts[key] if parts else None

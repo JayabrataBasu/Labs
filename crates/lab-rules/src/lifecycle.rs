@@ -1,9 +1,10 @@
 //! Birth and death.
 //!
 //! - `reproduction.division`: an entity holding at least the threshold of every resource in
-//!   `requires` divides,
-//!   unless its site already holds `site_capacity` entities. Selection acts through this rule:
-//!   who reproduces depends on what their genes achieved.
+//!   `requires` divides, unless its site already holds `site_capacity` entities. The division
+//!   first spends `consume` of each required resource (building material, which leaves the
+//!   system), so a requirement can only be met again by obtaining more. Selection acts through
+//!   this rule: who reproduces depends on what their genes achieved.
 //! - `reproduction.random`: every entity divides with a fixed probability, whatever it holds.
 //!   With `death.random` this is null world N3 (demography without selection).
 //! - `death.starvation`: an entity holding none of a resource is removed.
@@ -13,7 +14,7 @@
 use crate::mutation::MutationParams;
 use crate::{invalid, params, resource_index};
 use lab_core::config::RuleCfg;
-use lab_core::{Delta, LabError, Rule, SiteIndex, State};
+use lab_core::{Delta, Holder, LabError, Rule, SiteIndex, State};
 use lab_rng::{below, RuleRng};
 use serde::Deserialize;
 use std::ops::Range;
@@ -89,6 +90,7 @@ pub const DIVISION_ID: &str = "reproduction.division";
 struct Requirement {
     resource: String,
     threshold: u64,
+    consume: u64,
 }
 
 #[derive(Deserialize)]
@@ -102,8 +104,8 @@ struct DivisionParams {
 
 pub struct Division {
     stream: u16,
-    /// `(resource index, threshold)` pairs.
-    requires: Vec<(usize, u64)>,
+    /// `(resource index, threshold, consumed)`.
+    requires: Vec<(usize, u64, u64)>,
     site_capacity: u32,
     mutation: MutationParams,
 }
@@ -115,7 +117,17 @@ impl Division {
         if p.requires.is_empty() || p.requires.iter().any(|r| r.threshold == 0) {
             return Err(invalid(cfg, "requires must list at least one resource, each with a threshold of at least 1"));
         }
-        let requires = p.requires.iter().map(|r| Ok((resource_index(cfg, &r.resource, resources)? as usize, r.threshold))).collect::<Result<_, LabError>>()?;
+        if p.requires.iter().any(|r| r.consume > r.threshold) {
+            return Err(invalid(cfg, "consume must not exceed the threshold of the same resource"));
+        }
+        let mut requires: Vec<(usize, u64, u64)> = Vec::with_capacity(p.requires.len());
+        for r in &p.requires {
+            let index = resource_index(cfg, &r.resource, resources)? as usize;
+            if requires.iter().any(|&(other, ..)| other == index) {
+                return Err(invalid(cfg, "requires lists a resource twice"));
+            }
+            requires.push((index, r.threshold, r.consume));
+        }
         Ok(Division {
             stream: cfg.stream,
             requires,
@@ -130,7 +142,7 @@ impl Rule for Division {
         DIVISION_ID
     }
     fn version(&self) -> u32 {
-        2
+        3
     }
     fn stream(&self) -> u16 {
         self.stream
@@ -145,7 +157,10 @@ impl Rule for Division {
                 if !room.available(state, e) {
                     continue;
                 }
-                if self.requires.iter().all(|&(r, threshold)| state.ent_stock[e * state.k + r] >= threshold) {
+                if self.requires.iter().all(|&(r, threshold, _)| state.ent_stock[e * state.k + r] >= threshold) {
+                    for &(r, _, amount) in self.requires.iter().filter(|&&(.., amount)| amount > 0) {
+                        out.push(Delta::Transfer { from: Holder::Entity(entity), to: Holder::Sink, resource: r as u16, amount });
+                    }
                     let genome = self.mutation.offspring(&state.genomes[e], rng, tick, state.entities[e].id, state.k as u8);
                     out.push(Delta::Spawn { parent: entity, genome });
                     room.take(state, e);

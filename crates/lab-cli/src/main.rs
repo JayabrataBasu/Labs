@@ -1,8 +1,10 @@
 //! `lab`: command-line front end of the evolutionary laboratory.
 mod counterfactual;
 mod edit;
+mod live;
 mod observe;
 mod run;
+mod studio;
 mod view;
 
 use clap::{Parser, Subcommand};
@@ -101,6 +103,26 @@ enum Command {
         #[arg(long)]
         port: u16,
     },
+    /// The whole laboratory in the browser: edit worlds, watch runs, run experiments (127.0.0.1 only).
+    Studio {
+        #[arg(long)]
+        port: u16,
+        /// Folder of world configs (*.toml).
+        #[arg(long, default_value = "configs")]
+        worlds: PathBuf,
+        /// Folder that runs and experiments write into.
+        #[arg(long, default_value = "results")]
+        results: PathBuf,
+        /// Folder of experiment specs (*.toml).
+        #[arg(long, default_value = "experiments")]
+        experiments: PathBuf,
+        /// Folder holding the `evolab` Python package.
+        #[arg(long, default_value = "python")]
+        python: PathBuf,
+        /// Python interpreter used for experiments and reports.
+        #[arg(long, default_value = if cfg!(windows) { "python" } else { "python3" })]
+        python_bin: String,
+    },
     /// Print the tick and state hash of a checkpoint.
     Hash { checkpoint: PathBuf },
     /// Write one CSV row per entity of a checkpoint (identity, lineage, stocks, genome).
@@ -116,12 +138,12 @@ fn dispatch(cli: Cli) -> Result<(), LabError> {
         Command::Run { config, ticks, threads, out, checkpoint_every, series_every, observe_window, observe_count } => {
             let mut session = Session::fresh(&config, threads)?;
             let observe = observe_window.zip(observe_count).map(|(window, count)| observe::ObserveCfg { window, count });
-            let hash = execute(&mut session, ticks, &out, Outputs { checkpoint_every, series_every, observe }, |_| {})?;
+            let hash = execute(&mut session, ticks, &out, Outputs { checkpoint_every, series_every, observe }, |_| true)?;
             println!("final tick={} hash={}", session.state.tick, hex(&hash));
         }
         Command::Resume { checkpoint, config, ticks, threads, out, checkpoint_every, series_every } => {
             let mut session = Session::resumed(&checkpoint, &config, threads)?;
-            let hash = execute(&mut session, ticks, &out, Outputs { checkpoint_every, series_every, observe: None }, |_| {})?;
+            let hash = execute(&mut session, ticks, &out, Outputs { checkpoint_every, series_every, observe: None }, |_| true)?;
             println!("final tick={} hash={}", session.state.tick, hex(&hash));
         }
         Command::View { config, ticks, threads, port, out, linger_seconds, checkpoint_every, series_every, start_paused } => {
@@ -130,6 +152,9 @@ fn dispatch(cli: Cli) -> Result<(), LabError> {
             view::view(&mut session, &options)?;
         }
         Command::Edit { config, port } => edit::edit(&config, port)?,
+        Command::Studio { port, worlds, results, experiments, python, python_bin } => {
+            studio::serve(port, studio::Folders { worlds, results, experiments, python }, python_bin)?;
+        }
         Command::Counterfactual { checkpoint, config, sets, ticks, threads, out } => {
             let forks = counterfactual::run(&checkpoint, &config, &sets, ticks, threads, &out)?;
             println!("wrote {forks} forks to {}", out.display());

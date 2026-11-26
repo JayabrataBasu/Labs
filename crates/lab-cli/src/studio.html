@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<title>Lab studio</title>
+<style>
+  :root { color-scheme: dark;
+    --page: #101114; --surface: #191919; --line: #343944; --ink: #efefef; --ink-2: #9c9c9c; --grid: #303030; --axis: #474747;
+    --series-1: #338ced; --series-2: #e76624; --series-3: #00a888; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--page); color: var(--ink); margin: 0; }
+  header { display: flex; gap: 1.2rem; align-items: center; padding: .55rem 1.2rem; border-bottom: 1px solid var(--line); background: #1b1e24; }
+  header h1 { font-size: 1rem; margin: 0 1rem 0 0; }
+  nav button { background: none; border: none; border-bottom: 2px solid transparent; color: var(--ink-2); font: inherit; padding: .3rem .6rem; cursor: pointer; }
+  nav button[aria-selected=true] { color: var(--ink); border-bottom-color: var(--series-1); }
+  input, select, button { font: inherit; background: #262a33; color: inherit; border: 1px solid #454a55; border-radius: 4px; padding: .25rem .5rem; }
+  button { cursor: pointer; } button:hover { background: #363b45; } button.primary { background: #2f5d3a; border-color: #4a8a58; }
+  button:disabled { opacity: .45; cursor: default; }
+  input[type=number] { width: 7rem; }
+  label { display: inline-flex; flex-direction: column; gap: .15rem; font-size: .78rem; color: var(--ink-2); }
+  .tab { display: none; padding: 1rem 1.2rem; } .tab.on { display: block; }
+  .row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: flex-end; margin-bottom: .7rem; }
+  section { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: .75rem 1rem; margin-bottom: .9rem; }
+  h2 { font-size: .9rem; margin: 0 0 .5rem; font-weight: 600; }
+  .hint { color: var(--ink-2); font-size: .8rem; } .err { color: #ff9a9a; white-space: pre-wrap; } .ok { color: #8fd18f; }
+  #runGrid { display: grid; grid-template-columns: minmax(340px, 1.1fr) minmax(380px, 1fr); gap: .9rem; align-items: start; }
+  @media (max-width: 1000px) { #runGrid { grid-template-columns: 1fr; } }
+  #map { width: 100%; max-width: 720px; aspect-ratio: 1; image-rendering: pixelated; border: 1px solid var(--axis); background: var(--surface); cursor: crosshair; display: block; }
+  #legend { display: flex; flex-wrap: wrap; gap: .3rem 1rem; align-items: center; font-size: .8rem; color: var(--ink-2); margin-top: .45rem; }
+  .swatch { display: inline-block; width: .75rem; height: .75rem; border-radius: 2px; margin-right: .35rem; vertical-align: -1px; }
+  .ramp { display: inline-block; width: 8rem; height: .6rem; border-radius: 2px; vertical-align: middle; margin: 0 .4rem; }
+  .charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: .6rem; }
+  .chart { position: relative; } .chart h3 { font-size: .78rem; font-weight: 500; color: var(--ink-2); margin: 0 0 .15rem; }
+  .chart svg { width: 100%; display: block; overflow: visible; }
+  .chart text { fill: var(--ink-2); font-size: 10px; font-variant-numeric: tabular-nums; }
+  .tip { position: absolute; pointer-events: none; background: #0b0b0b; border: 1px solid var(--line); border-radius: 4px; padding: .25rem .45rem; font-size: .75rem; white-space: nowrap; display: none; z-index: 3; }
+  .key { display: inline-block; width: .8rem; height: 2px; vertical-align: middle; margin: 0 .35rem; }
+  #mapTip { position: fixed; }
+  .entity { border: 1px solid var(--line); border-radius: 5px; padding: .45rem .6rem; margin-bottom: .45rem; font-size: .82rem; }
+  .entity ul { margin: .25rem 0 0; padding-left: 1.1rem; font-family: ui-monospace, monospace; font-size: .76rem; }
+  a.id { color: #84b9f3; cursor: pointer; text-decoration: underline; margin-right: .35rem; }
+  table { border-collapse: collapse; font-size: .82rem; font-variant-numeric: tabular-nums; } td, th { border-bottom: 1px solid var(--line); padding: .25rem .7rem; text-align: left; }
+  pre { background: #0b0b0b; padding: .6rem; border-radius: 4px; max-height: 18rem; overflow: auto; font-size: .76rem; }
+  iframe { width: 100%; height: calc(100vh - 150px); border: 1px solid var(--line); border-radius: 6px; background: var(--page); }
+</style>
+</head>
+<body>
+<svg id="ns" width="0" height="0" aria-hidden="true" style="position:absolute"></svg>
+<header>
+  <h1>Lab studio</h1>
+  <nav role="tablist">
+    <button role="tab" data-tab="worlds">Worlds</button>
+    <button role="tab" data-tab="run">Run</button>
+    <button role="tab" data-tab="experiments">Experiments</button>
+  </nav>
+  <span id="status" class="hint"></span>
+</header>
+
+<div class="tab" id="tab-worlds">
+  <div class="row">
+    <label>World<select id="editWorld"></select></label>
+    <label>Copy as<input type="text" id="copyName" placeholder="new-name"></label>
+    <button id="copy">Make a copy</button>
+    <span class="hint">Edit the copy and press “Save to file” inside the editor. Saved worlds appear in the Run tab.</span>
+  </div>
+  <iframe id="editor" title="World editor"></iframe>
+</div>
+
+<div class="tab" id="tab-run">
+  <div class="row">
+    <label>World<select id="runWorld"></select></label>
+    <label>Ticks<input type="number" id="ticks" min="1" value="20000"></label>
+    <label>Threads<input type="number" id="threads" min="1" value="4"></label>
+    <label>Seed (blank: the world’s)<input type="text" id="seed" size="12"></label>
+    <label>Start<select id="startMode"><option value="running">running</option><option value="paused">paused</option></select></label>
+    <button id="start" class="primary">Start run</button>
+    <button id="pause">Pause</button><button id="resume">Resume</button><button id="step">Step</button><button id="stop">Stop</button>
+    <label>Speed limit<select id="speed"><option value="0">none</option><option value="1">1 tick/s</option><option value="5">5 ticks/s</option><option value="20">20 ticks/s</option><option value="100">100 ticks/s</option><option value="500">500 ticks/s</option></select></label>
+  </div>
+  <p id="runInfo" class="hint">No run yet. Watching, pausing and inspecting never change a run’s result.</p>
+  <div id="runGrid">
+    <div>
+      <section>
+        <div class="row"><label>Map shows<select id="layer"></select></label></div>
+        <canvas id="map" width="1" height="1" aria-label="World map"></canvas>
+        <div id="legend"></div>
+        <div class="tip" id="mapTip"></div>
+      </section>
+      <section>
+        <h2>Inspector</h2>
+        <div id="inspector"><p class="hint">Click a site on the map.</p></div>
+      </section>
+    </div>
+    <div>
+      <section><h2>Population</h2><div id="popChart"></div></section>
+      <section><h2>Genes carried, by kind</h2><div class="charts" id="geneCharts"></div></section>
+      <section><h2>Resources lying on sites</h2><div class="charts" id="resourceCharts"></div></section>
+      <section><details><summary>Latest values as a table</summary><div id="latest"></div></details></section>
+    </div>
+  </div>
+</div>
+
+<div class="tab" id="tab-experiments">
+  <section>
+    <h2>Run an exploratory experiment</h2>
+    <div class="row">
+      <label>Spec<select id="spec"></select></label>
+      <label>Parallel runs<input type="number" id="jobs" min="1" value="4"></label>
+      <button id="runSpec" class="primary">Run</button>
+      <span id="expState" class="hint"></span>
+    </div>
+    <p class="hint">Runs started here are exploratory. A registered experiment is started from the command line, from a committed spec with seeds of 1000 or more.</p>
+    <pre id="log">no log yet</pre>
+  </section>
+  <section><h2>Results</h2><div id="results"></div></section>
+  <section id="reportBox" hidden><h2 id="reportTitle"></h2><iframe id="report" title="Experiment report" sandbox="allow-scripts"></iframe></section>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const SVG = $('ns').namespaceURI;
+function el(tag, attrs, ...children) {
+  const node = document.createElement(tag);
+  Object.entries(attrs || {}).forEach(([k, v]) => k.startsWith('on') ? node[k] = v : node.setAttribute(k, v));
+  children.flat().forEach(c => node.append(c instanceof Node ? c : document.createTextNode(String(c))));
+  return node;
+}
+function svg(tag, attrs, parent) {
+  const node = document.createElementNS(SVG, tag);
+  Object.entries(attrs).forEach(([k, v]) => node.setAttribute(k, v));
+  if (parent) parent.append(node);
+  return node;
+}
+async function api(path, body) {
+  const response = await fetch(path, body === undefined ? undefined : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || response.statusText);
+  return result;
+}
+function say(text, cls) { $('status').textContent = text; $('status').className = cls || 'hint'; }
+const attempt = f => async (...args) => { try { say(''); await f(...args); } catch (e) { say(e.message, 'err'); } };
+const short = v => v >= 1e6 ? (v / 1e6).toFixed(v >= 1e7 ? 0 : 1) + 'M' : v >= 1e4 ? Math.round(v / 1e3) + 'K' : String(v);
+
+// ---- tabs -----------------------------------------------------------------------------
+let tab = 'run';
+function show(name) {
+  tab = name;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.id === 'tab-' + name));
+  document.querySelectorAll('nav button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === name));
+  history.replaceState(null, '', '#' + name);
+  if (name === 'worlds' && !$('editor').src) openEditor();
+  if (name === 'experiments') refreshExperiments();
+}
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => show(b.dataset.tab));
+
+// ---- worlds ---------------------------------------------------------------------------
+async function loadWorlds(select) {
+  const worlds = await api('/worlds');
+  for (const id of ['editWorld', 'runWorld']) {
+    const keep = id === 'editWorld' && select ? select : $(id).value;
+    $(id).replaceChildren(...worlds.map(w => el('option', {}, w)));
+    if (worlds.includes(keep)) $(id).value = keep;
+  }
+}
+function openEditor() { if ($('editWorld').value) $('editor').src = '/editor?world=' + $('editWorld').value; }
+$('editWorld').onchange = openEditor;
+$('copy').onclick = attempt(async () => {
+  const to = $('copyName').value.trim();
+  await api('/worlds/copy', { from: $('editWorld').value, to });
+  await loadWorlds(to); openEditor(); say('created ' + to, 'ok');
+});
+
+// ---- run control ----------------------------------------------------------------------
+let status = { active: false }, shownRun = null, selected = null;
+const whole = id => { const n = Number($(id).value); if (!Number.isSafeInteger(n) || n < 1) throw new Error(id + ' must be a whole number of at least 1'); return n; };
+$('start').onclick = attempt(async () => {
+  await api('/run', { world: $('runWorld').value, ticks: whole('ticks'), threads: whole('threads'), seed: $('seed').value.trim() || null, paused: $('startMode').value === 'paused' });
+  await api('/control', { speed: Number($('speed').value) });
+});
+for (const command of ['pause', 'resume', 'stop']) $(command).onclick = attempt(() => api('/control', { command }));
+$('step').onclick = attempt(async () => { await api('/control', { command: 'pause' }); await api('/control', { command: 'step' }); });
+$('speed').onchange = attempt(() => status.active ? api('/control', { speed: Number($('speed').value) }) : null);
+
+// ---- map ------------------------------------------------------------------------------
+const hex = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+const RAMPS = {
+  stock: ['#191919', '#0e3d7e', '#1b64be', '#338ced', '#84b9f3', '#cce3fd'],
+  entity: ['#191919', '#5a2208', '#a8430f', '#e76624', '#f6a77c', '#fde0d0'],
+};
+function ramp(stops, t) {
+  const x = Math.min(1, Math.max(0, t)) * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(x)), f = x - i;
+  const a = hex(stops[i]), b = hex(stops[i + 1]);
+  return a.map((v, k) => Math.round(v + (b[k] - v) * f));
+}
+const TYPE_COLORS = ['#338ced', '#e76624', '#00a888'], OTHER = '#6b6b6b';
+let slots = new Map(), types = [], values = null;
+function assignSlots() { // a type keeps its colour for as long as it stays among the three most common
+  const top = types.slice(0, 3).map(t => t.label);
+  [...slots.keys()].filter(k => !top.includes(k)).forEach(k => slots.delete(k));
+  top.filter(l => !slots.has(l)).forEach(l => slots.set(l, [0, 1, 2].find(i => ![...slots.values()].includes(i))));
+}
+function colorOfType(code) {
+  const t = types.find(x => x.code === code);
+  return t && slots.has(t.label) ? TYPE_COLORS[slots.get(t.label)] : OTHER;
+}
+function layerOptions() {
+  const options = [['count', 'entities per site'], ['type', 'most common metabolic type'], ['guests', 'entities inside a host'],
+    ...status.resources.map((r, i) => ['stock&resource=' + i, r + ' on the site'])];
+  const keep = $('layer').value;
+  $('layer').replaceChildren(...options.map(([v, t]) => el('option', { value: v }, t)));
+  if (options.some(o => o[0] === keep)) $('layer').value = keep;
+}
+async function drawMap() {
+  const kind = $('layer').value;
+  const response = await fetch('/layer?kind=' + kind);
+  if (!response.ok) return;
+  const data = new DataView(await response.arrayBuffer()), n = status.width * status.height;
+  if (data.byteLength !== 8 + 4 * n) return;
+  values = Array.from({ length: n }, (_, i) => data.getUint32(8 + 4 * i, true));
+  if (kind === 'type') { types = await api('/types'); assignSlots(); }
+  const canvas = $('map'), ctx = canvas.getContext('2d');
+  canvas.width = status.width; canvas.height = status.height; canvas.style.aspectRatio = `${status.width} / ${status.height}`;
+  const image = ctx.createImageData(status.width, status.height), max = Math.max(1, ...values);
+  const stops = kind.startsWith('stock') ? RAMPS.stock : RAMPS.entity;
+  const surface = hex('#191919');
+  values.forEach((v, i) => {
+    const rgb = kind === 'type' ? (v === 0 ? surface : hex(colorOfType(v))) : ramp(stops, v / max);
+    image.data.set([...rgb, 255], 4 * i);
+  });
+  ctx.putImageData(image, 0, 0);
+  const swatch = (color, text) => el('span', {}, el('span', { class: 'swatch', style: 'background:' + color }), text);
+  if (kind === 'type') {
+    const named = types.filter(t => slots.has(t.label)), rest = types.filter(t => !slots.has(t.label));
+    $('legend').replaceChildren(...named.map(t => swatch(TYPE_COLORS[slots.get(t.label)], `${t.label} (${t.count})`)),
+      ...(rest.length ? [swatch(OTHER, `${rest.length} other types (${rest.reduce((s, t) => s + t.count, 0)})`)] : []));
+  } else {
+    $('legend').replaceChildren(el('span', {}, '0', el('span', { class: 'ramp', style: `background:linear-gradient(90deg,${stops.join(',')})` }), `${max} (current maximum)`));
+  }
+}
+function siteAt(event) {
+  const box = $('map').getBoundingClientRect();
+  return [Math.min(status.width - 1, Math.max(0, Math.floor((event.clientX - box.left) / box.width * status.width))),
+          Math.min(status.height - 1, Math.max(0, Math.floor((event.clientY - box.top) / box.height * status.height)))];
+}
+$('map').onpointermove = e => {
+  if (!status.active || !values) return;
+  const [x, y] = siteAt(e), v = values[y * status.width + x], kind = $('layer').value;
+  const text = kind === 'type' ? (v === 0 ? 'empty' : (types.find(t => t.code === v) || { label: 'type ' + v }).label) : v + ' · ' + $('layer').selectedOptions[0].text;
+  const tip = $('mapTip');
+  tip.replaceChildren(el('strong', {}, text), ` (${x}, ${y})`);
+  tip.style.display = 'block'; tip.style.left = (e.clientX + 12) + 'px'; tip.style.top = (e.clientY + 12) + 'px';
+};
+$('map').onpointerleave = () => { $('mapTip').style.display = 'none'; };
+$('map').onclick = e => { if (!status.active) return; const [x, y] = siteAt(e); selected = { x, y }; inspect(); };
+$('layer').onchange = attempt(drawMap);
+
+// ---- inspector ------------------------------------------------------------------------
+const link = id => el('a', { class: 'id', tabindex: 0, onclick: () => { selected = { id }; inspect(); } }, '#' + id);
+function card(e) {
+  const stocks = Object.entries(e.stocks).map(([k, v]) => `${k} ${v}`).join(' · ');
+  const family = [`born at tick ${e.born}`];
+  const line = el('div', { class: 'hint' }, family.join(' '), ' · site ', `(${e.site % status.width}, ${Math.floor(e.site / status.width)})`);
+  if (e.mother !== null) line.append(' · mother ', e.mother_alive ? link(e.mother) : `#${e.mother} (dead)`);
+  if (e.host !== null) line.append(' · inside ', link(e.host));
+  if (e.guests.length) line.append(' · contains ', ...e.guests.map(link));
+  if (e.offspring_alive.length) line.append(' · living offspring ', ...e.offspring_alive.slice(0, 12).map(link));
+  return el('div', { class: 'entity' }, el('strong', {}, 'Entity '), link(e.id), el('span', { class: 'hint' }, ' ' + e.type), line,
+    el('div', {}, stocks), el('ul', {}, e.genes.length ? e.genes.map(g => el('li', {}, g)) : [el('li', {}, 'no genes')]));
+}
+async function inspect() {
+  if (!selected) return;
+  try {
+    if (selected.id !== undefined) {
+      $('inspector').replaceChildren(card(await api('/entity?id=' + selected.id)));
+    } else {
+      const site = await api(`/site?x=${selected.x}&y=${selected.y}`);
+      const stocks = Object.entries(site.stocks).map(([k, v]) => `${k} ${v}`).join(' · ');
+      $('inspector').replaceChildren(el('p', { class: 'hint' }, `Site (${site.x}, ${site.y}) at tick ${status.tick}: ${stocks}. ${site.entities.length} entities.`),
+        ...site.entities.slice(0, 30).map(card), ...(site.entities.length > 30 ? [el('p', { class: 'hint' }, 'Only the first 30 are listed.')] : []));
+    }
+  } catch (e) {
+    $('inspector').replaceChildren(el('p', { class: 'hint' }, selected.id !== undefined ? `Entity #${selected.id} is no longer alive.` : e.message));
+  }
+}
+
+// ---- charts ---------------------------------------------------------------------------
+const pointers = {}; // chart id -> pointer position as a fraction of the plot width
+function lineChart(holder, id, title, ticks, series, height) {
+  let box = holder.querySelector(`[data-chart="${CSS.escape(id)}"]`);
+  if (!box) {
+    box = el('div', { class: 'chart', 'data-chart': id }, ...(title ? [el('h3', {}, title)] : []), el('div', { class: 'tip' }));
+    holder.append(box);
+    box.onpointermove = e => { const r = box.querySelector('svg').getBoundingClientRect(); pointers[id] = (e.clientX - r.left) / r.width; box.draw(); };
+    box.onpointerleave = () => { delete pointers[id]; box.draw(); };
+  }
+  box.draw = () => {
+    box.querySelector('svg')?.remove();
+    const width = Math.max(box.clientWidth, 150), left = 34, right = series.length > 1 ? 70 : 6, top = 4, bottom = 14;
+    const root = svg('svg', { viewBox: `0 0 ${width} ${height}`, height, role: 'img', 'aria-label': title || series.map(s => s.name).join(' and ') });
+    box.insertBefore(root, box.querySelector('.tip'));
+    if (!ticks.length) return;
+    const max = Math.max(1, ...series.flatMap(s => s.values));
+    const unit = Math.pow(10, Math.floor(Math.log10(max))), nice = [1, 2, 4, 5, 10].map(k => k * unit).find(v => v >= max);
+    const first = ticks[0], last = ticks[ticks.length - 1];
+    const x = t => left + (last === first ? 0 : (t - first) / (last - first)) * (width - left - right);
+    const y = v => top + (1 - v / nice) * (height - top - bottom);
+    for (const v of [0, nice / 2, nice]) {
+      svg('line', { x1: left, x2: width - right, y1: y(v), y2: y(v), stroke: v === 0 ? 'var(--axis)' : 'var(--grid)', 'stroke-width': 1 }, root);
+      svg('text', { x: left - 4, y: y(v) + 3, 'text-anchor': 'end' }, root).textContent = short(v);
+    }
+    svg('text', { x: left, y: height - 2 }, root).textContent = 'tick ' + first;
+    svg('text', { x: width - right, y: height - 2, 'text-anchor': 'end' }, root).textContent = last;
+    series.forEach(s => svg('polyline', { points: s.values.map((v, i) => `${x(ticks[i]).toFixed(1)},${y(v).toFixed(1)}`).join(' '), fill: 'none', stroke: s.color, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, root));
+    if (series.length > 1) {
+      let used = [];
+      series.forEach(s => { let at = y(s.values[s.values.length - 1]) + 3; while (used.some(u => Math.abs(u - at) < 11)) at -= 11; used.push(at);
+        svg('text', { x: width - right + 6, y: at }, root).textContent = s.name; });
+    }
+    const tip = box.querySelector('.tip');
+    if (pointers[id] === undefined) { tip.style.display = 'none'; return; }
+    const target = first + Math.min(1, Math.max(0, (pointers[id] * width - left) / (width - left - right))) * (last - first);
+    let i = 0; ticks.forEach((t, k) => { if (Math.abs(t - target) < Math.abs(ticks[i] - target)) i = k; });
+    svg('line', { x1: x(ticks[i]), x2: x(ticks[i]), y1: top, y2: height - bottom, stroke: 'var(--ink-2)', 'stroke-width': 1 }, root);
+    tip.replaceChildren(el('div', { class: 'hint' }, 'tick ' + ticks[i]),
+      ...series.map(s => el('div', {}, el('span', { class: 'key', style: 'background:' + s.color }), el('strong', {}, s.values[i]), ' ' + s.name)));
+    tip.style.display = 'block'; tip.style.left = Math.min(x(ticks[i]) + 8, width - 110) + 'px'; tip.style.top = (title ? 18 : 0) + 'px';
+  };
+  box.draw();
+}
+async function drawCharts() {
+  const h = await api('/history');
+  const population = [{ name: 'all', color: 'var(--series-1)', values: h.entities }, { name: 'in a host', color: 'var(--series-2)', values: h.contained }];
+  lineChart($('popChart'), 'population', '', h.tick, population, 150);
+  for (const [kind, v] of ['uptake', 'convert', 'secrete', 'bind'].map(k => [k, h.genes[k]])) lineChart($('geneCharts'), 'gene-' + kind, kind, h.tick, [{ name: kind, color: 'var(--series-1)', values: v }], 80);
+  h.site.forEach((v, i) => lineChart($('resourceCharts'), 'site-' + i, status.resources[i], h.tick, [{ name: status.resources[i], color: 'var(--series-1)', values: v }], 80));
+  const k = h.tick.length - 1;
+  if (k >= 0 && $('latest').closest('details').open) {
+    const rows = [['tick', h.tick[k]], ['entities', h.entities[k]], ['inside a host', h.contained[k]],
+      ...Object.entries(h.genes).map(([n, v]) => [n + ' genes', v[k]]), ...h.site.map((v, i) => [status.resources[i] + ' on sites', v[k]])];
+    $('latest').replaceChildren(el('table', {}, rows.map(([n, v]) => el('tr', {}, el('th', {}, n), el('td', {}, v)))));
+  }
+}
+
+// ---- polling --------------------------------------------------------------------------
+let drawnTick = -1, drawnCharts = 0, wasDone = false;
+async function poll() {
+  try {
+    status = await api('/status');
+    for (const id of ['pause', 'resume', 'step', 'stop']) $(id).disabled = !status.active || status.done;
+    if (status.active) {
+      if (status.run !== shownRun) {
+        shownRun = status.run; selected = null; drawnTick = -1; drawnCharts = 0; wasDone = false; slots = new Map();
+        for (const id of ['popChart', 'geneCharts', 'resourceCharts', 'latest']) $(id).replaceChildren();
+        $('inspector').replaceChildren(el('p', { class: 'hint' }, 'Click a site on the map.'));
+        layerOptions();
+        $('runWorld').value = status.world;
+      }
+      const state = status.error ? 'failed: ' + status.error : status.done ? (status.stopped ? 'stopped' : 'finished') : status.paused ? 'paused' : 'running';
+      $('runInfo').replaceChildren(el('strong', {}, status.run), ` · tick ${status.tick} of ${status.ticks_total} · ${state} · ${status.entities} entities, ${status.contained} inside a host`,
+        ...(status.final_hash ? [` · state hash ${status.final_hash.slice(0, 16)}… (saved in results/studio/${status.run})`] : []));
+      if (tab === 'run') {
+        const changed = status.tick !== drawnTick || (status.done && !wasDone);
+        if (changed) { drawnTick = status.tick; await drawMap(); if (selected) await inspect(); }
+        if (Date.now() - drawnCharts > 700 && (changed || !drawnCharts)) { drawnCharts = Date.now(); await drawCharts(); }
+        wasDone = status.done;
+      }
+    }
+  } catch (e) { say('studio not reachable: ' + e.message, 'err'); }
+  setTimeout(poll, 200);
+}
+$('latest').closest('details').ontoggle = () => { if (status.active) drawCharts(); };
+
+// ---- experiments ----------------------------------------------------------------------
+let experimentTimer = null;
+async function refreshExperiments() {
+  clearTimeout(experimentTimer);
+  try {
+    const e = await api('/experiments');
+    const keep = $('spec').value;
+    $('spec').replaceChildren(...e.specs.map(s => el('option', {}, s)));
+    if (e.specs.includes(keep)) $('spec').value = keep;
+    $('runSpec').disabled = e.running !== null || !e.specs.length;
+    $('expState').textContent = e.running ? `running ${e.running}…` : e.last ? `${e.last.spec} ${e.last.ok ? 'finished' : 'failed (see the log)'}` : '';
+    $('log').textContent = (await (await fetch('/experiments/log')).text()) || 'no log yet';
+    $('results').replaceChildren(e.results.length ? el('table', {}, el('tr', {}, el('th', {}, 'result'), el('th', {}, 'runs'), el('th', {}, '')),
+      e.results.map(r => el('tr', {}, el('td', {}, r.name), el('td', {}, r.runs),
+        el('td', {}, el('button', { onclick: attempt(async () => { say('building report…'); await api('/experiments/report', { name: r.name }); openReport(r.name); say(''); refreshExperiments(); }) }, r.report ? 'rebuild report' : 'build report'),
+          ...(r.report ? [' ', el('button', { onclick: () => openReport(r.name) }, 'open')] : []))))) : el('p', { class: 'hint' }, 'No results yet.'));
+    if (e.running && tab === 'experiments') experimentTimer = setTimeout(refreshExperiments, 1000);
+  } catch (e) { say(e.message, 'err'); }
+}
+function openReport(name) {
+  $('reportBox').hidden = false; $('reportTitle').textContent = 'Report: ' + name;
+  $('report').src = '/report?name=' + name + '&t=' + Date.now(); $('reportBox').scrollIntoView();
+}
+$('runSpec').onclick = attempt(async () => { await api('/experiments/run', { spec: $('spec').value, jobs: whole('jobs') }); refreshExperiments(); });
+
+(async () => {
+  await loadWorlds();
+  show(['worlds', 'run', 'experiments'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'run');
+  poll();
+})();
+</script>
+</body>
+</html>

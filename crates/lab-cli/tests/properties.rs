@@ -38,8 +38,8 @@ fn rule_text(kind: usize, stream: usize, resource: usize, a: u64, b: u64, k: usi
         6 => (
             "reproduction.division",
             format!(
-                "requires = [{{ resource = \"{r}\", threshold = {} }}], site_capacity = {}, mutation = {{ point_ppm = {}, point_magnitude = 3, retarget_ppm = {}, duplicate_ppm = {}, delete_ppm = {}, max_genes = 12, kinds = [\"uptake\", \"convert\", \"secrete\", \"bind\"] }}",
-                1 + a % 12, 1 + b % 6, a % 400_000, b % 300_000, a % 200_000, b % 200_000
+                "requires = [{{ resource = \"{r}\", threshold = {}, consume = {} }}], site_capacity = {}, mutation = {{ point_ppm = {}, point_magnitude = 3, retarget_ppm = {}, duplicate_ppm = {}, delete_ppm = {}, max_genes = 12, kinds = [\"uptake\", \"convert\", \"secrete\", \"bind\"] }}",
+                1 + a % 12, b % (2 + a % 12), 1 + b % 6, a % 400_000, b % 300_000, a % 200_000, b % 200_000
             ),
         ),
         7 => ("death.starvation", format!("resource = \"{r}\", recycle = {}", !a.is_multiple_of(3))),
@@ -55,7 +55,7 @@ fn rule_text(kind: usize, stream: usize, resource: usize, a: u64, b: u64, k: usi
     };
     let version = match id {
         "metabolism.genes" => 3,
-        "reproduction.division" => 2,
+        "reproduction.division" => 3,
         _ => 1,
     };
     format!("[[rules]]\nid = \"{id}\"\nversion = {version}\nstream = {stream}\nparams = {{ {params} }}\n")

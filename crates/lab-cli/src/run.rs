@@ -57,13 +57,14 @@ pub struct Outputs {
 }
 
 /// Advances `ticks` ticks, writing checkpoints and finally the manifest into `out`.
-/// `after_tick` observes the state after each tick (and once before the first); it cannot change it.
+/// `after_tick` observes the state after each tick (and once before the first); it cannot change
+/// it. Returning false ends the run at that tick, which is then written like a final tick.
 pub fn execute(
     session: &mut Session,
     ticks: u64,
     out: &Path,
     outputs: Outputs,
-    mut after_tick: impl FnMut(&State),
+    mut after_tick: impl FnMut(&State) -> bool,
 ) -> Result<[u8; 32], LabError> {
     let Outputs { checkpoint_every, series_every, observe } = outputs;
     let start_tick = session.state.tick;
@@ -79,43 +80,42 @@ pub fn execute(
     std::fs::create_dir_all(out).map_err(|e| LabError::Io(format!("cannot create {}: {e}", out.display())))?;
     let mut windows = observe.map(|cfg| Windows::new(cfg, start_tick, end_tick, out)).transpose()?;
     let mut series = series_every.map(|_| series_header(&session.cfg.world.resources));
-    let record = |state: &State, series: &mut Option<String>| {
+    let record = |state: &State, last: bool, series: &mut Option<String>| {
         if let (Some(every), Some(text)) = (series_every, series.as_mut()) {
-            if state.tick == end_tick || state.tick.is_multiple_of(every) {
+            if last || state.tick.is_multiple_of(every) {
                 series_row(text, state);
             }
         }
     };
-    record(&session.state, &mut series);
 
     let mut checkpoints = Vec::new();
+    let mut checkpointed = None;
     let mut entity_ticks: u64 = 0;
     let started = Instant::now();
-    after_tick(&session.state);
-    while session.state.tick < end_tick {
+    let mut go = after_tick(&session.state);
+    record(&session.state, !go || ticks == 0, &mut series);
+    while go && session.state.tick < end_tick {
         entity_ticks = entity_ticks.saturating_add(session.state.entities.len() as u64);
         match windows.as_mut() {
             Some(windows) => windows.step(&session.engine, &mut session.state, &session.cfg.world.resources)?,
             None => session.engine.step(&mut session.state)?,
         }
-        after_tick(&session.state);
-        record(&session.state, &mut series);
+        go = after_tick(&session.state);
         let tick = session.state.tick;
-        if tick == end_tick || checkpoint_every.is_some_and(|every| tick.is_multiple_of(every)) {
-            let bytes = encode(&session.state, &session.config_hash);
-            let path = out.join(format!("ckpt-{tick}.bin"));
-            std::fs::write(&path, &bytes).map_err(|e| LabError::Io(format!("cannot write {}: {e}", path.display())))?;
-            checkpoints.push(json!({ "tick": tick, "sha256": hex(&session.hash()) }));
+        let last = !go || tick == end_tick;
+        record(&session.state, last, &mut series);
+        if last || checkpoint_every.is_some_and(|every| tick.is_multiple_of(every)) {
+            checkpoints.push(write_checkpoint(session, out)?);
+            checkpointed = Some(tick);
         }
     }
     let elapsed_ms = started.elapsed().as_millis().max(1) as u64;
     let final_hash = session.hash();
-    if ticks == 0 {
-        let bytes = encode(&session.state, &session.config_hash);
-        let path = out.join(format!("ckpt-{end_tick}.bin"));
-        std::fs::write(&path, &bytes).map_err(|e| LabError::Io(format!("cannot write {}: {e}", path.display())))?;
-        checkpoints.push(json!({ "tick": end_tick, "sha256": hex(&final_hash) }));
+    // A run of no ticks, or one stopped before its first, still leaves a checkpoint.
+    if checkpointed != Some(session.state.tick) {
+        checkpoints.push(write_checkpoint(session, out)?);
     }
+    let end_tick = session.state.tick;
 
     if let Some(text) = series {
         let path = out.join("series.csv");
@@ -146,6 +146,14 @@ pub fn execute(
     let text = serde_json::to_string_pretty(&manifest).map_err(|e| LabError::Io(e.to_string()))?;
     std::fs::write(&path, text + "\n").map_err(|e| LabError::Io(format!("cannot write {}: {e}", path.display())))?;
     Ok(final_hash)
+}
+
+/// Writes `ckpt-<tick>.bin` and returns its manifest entry.
+fn write_checkpoint(session: &Session, out: &Path) -> Result<serde_json::Value, LabError> {
+    let tick = session.state.tick;
+    let path = out.join(format!("ckpt-{tick}.bin"));
+    std::fs::write(&path, encode(&session.state, &session.config_hash)).map_err(|e| LabError::Io(format!("cannot write {}: {e}", path.display())))?;
+    Ok(json!({ "tick": tick, "sha256": hex(&session.hash()) }))
 }
 
 /// Column names of `series.csv`. Everything is an exact integer; ratios are left to analysis.

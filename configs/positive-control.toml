@@ -80,6 +80,18 @@ stream = 7
 params = { resource = "C", divisor = 10 }
 
 [[rules]]
+id = "decay.fraction"
+version = 1
+stream = 13
+params = { resource = "E", divisor = 10 }
+
+[[rules]]
+id = "decay.fraction"
+version = 1
+stream = 14
+params = { resource = "F", divisor = 10 }
+
+[[rules]]
 id = "metabolism.genes"
 version = 3
 stream = 8
@@ -99,9 +111,9 @@ params = { probability_ppm = 1000, recycle = true }
 
 [[rules]]
 id = "reproduction.division"
-version = 2
+version = 3
 stream = 11
-params = { requires = [{ resource = "E", threshold = 120 }, { resource = "F", threshold = 120 }], site_capacity = 4, mutation = { point_ppm = 0, point_magnitude = 0, retarget_ppm = 0, duplicate_ppm = 0, delete_ppm = 0, max_genes = 16, kinds = ["uptake", "convert", "secrete"] } }
+params = { requires = [{ resource = "E", threshold = 120, consume = 60 }, { resource = "F", threshold = 120, consume = 60 }], site_capacity = 4, mutation = { point_ppm = 0, point_magnitude = 0, retarget_ppm = 0, duplicate_ppm = 0, delete_ppm = 0, max_genes = 16, kinds = ["uptake", "convert", "secrete"] } }
 
 [[rules]]
 id = "move.random"

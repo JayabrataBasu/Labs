@@ -74,6 +74,18 @@ stream = 7
 params = { resource = "C", divisor = 10 }
 
 [[rules]]
+id = "decay.fraction"
+version = 1
+stream = 17
+params = { resource = "E", divisor = 10 }
+
+[[rules]]
+id = "decay.fraction"
+version = 1
+stream = 18
+params = { resource = "F", divisor = 10 }
+
+[[rules]]
 id = "metabolism.genes"
 version = 3
 stream = 8
@@ -105,9 +117,9 @@ params = { resources = ["E", "F"], divisor = 4 }
 
 [[rules]]
 id = "reproduction.division"
-version = 2
+version = 3
 stream = 11
-params = { requires = [{ resource = "E", threshold = 120 }, { resource = "F", threshold = 120 }], site_capacity = 4, mutation = { point_ppm = 20000, point_magnitude = 5, retarget_ppm = 2000, duplicate_ppm = 2000, delete_ppm = 10000, max_genes = 16, kinds = ["uptake", "convert", "secrete", "bind"] } }
+params = { requires = [{ resource = "E", threshold = 120, consume = 60 }, { resource = "F", threshold = 120, consume = 60 }], site_capacity = 4, mutation = { point_ppm = 20000, point_magnitude = 5, retarget_ppm = 2000, duplicate_ppm = 2000, delete_ppm = 10000, max_genes = 16, kinds = ["uptake", "convert", "secrete", "bind"] } }
 
 [[rules]]
 id = "containment.partition"

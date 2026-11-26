@@ -16,9 +16,10 @@ def lab_binary():
     path = os.environ.get("LAB_BIN")
     if path:
         return path
-    here = Path(__file__).resolve().parents[2] / "target" / "release" / "lab"
-    if here.exists():
-        return str(here)
+    release = Path(__file__).resolve().parents[2] / "target" / "release"
+    for name in ("lab", "lab.exe"):
+        if (release / name).exists():
+            return str(release / name)
     raise FileNotFoundError("lab binary not found: run `cargo build --release` or set LAB_BIN")
 
 

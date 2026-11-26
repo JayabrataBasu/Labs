@@ -23,13 +23,13 @@ jobs:
       - name: Install pinned toolchain
         shell: bash
         run: rustup toolchain install && rustup show active-toolchain
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Lint
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test
         run: cargo test --workspace --release --locked
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
       - name: Python experiment layer tests
         shell: bash
         env:
@@ -56,3 +56,15 @@ jobs:
             done
             echo "$name replay hash matches on ${{ matrix.os }}: $expected"
           done
+      - name: Package the program with its Python layer and example worlds
+        shell: bash
+        run: |
+          mkdir -p package/target/release
+          if [ -f target/release/lab.exe ]; then cp target/release/lab.exe package/target/release/; else cp target/release/lab package/target/release/; fi
+          cp -r configs experiments python docs README.md package/
+          find package -name __pycache__ -type d -exec rm -rf {} +
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lab-${{ runner.os }}-${{ runner.arch }}
+          path: package
+          if-no-files-found: error
